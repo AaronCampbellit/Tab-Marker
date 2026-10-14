@@ -2,11 +2,11 @@
 
 TabMarker is a local-first Chrome Manifest V3 extension for custom tab titles and highly visible colored SVG favicons. Use a temporary customization for one tab, or save a rule that reapplies when a matching page opens. It is designed for repeated web application tabs, including future verified Autotask PSA module detection.
 
-There is no backend, account, external API, telemetry, or remote asset dependency. Rules remain in this Chrome profile. Autotask module signatures are deliberately empty until tested against the live application. See [validation](docs/validation.md) for what has actually been exercised; full-extension testing is currently blocked by this cloud browser's managed policy.
+There is no backend, account, external API, telemetry, or remote asset dependency. Rules remain in this Chrome profile. Autotask module signatures are deliberately empty until tested against the live application. Local verification passed all **133 tests**, including real extension loading, browser/worker restart behavior, the toolbar popup and native inactive-tab menu editing on Chrome for Testing 151. See [validation](docs/validation.md) for evidence and the unverified live Autotask scope. Both production and development dependency audits are clean after the Tailwind 4 migration.
 
 ## Build and install
 
-Requirements: Node.js **22.12+** or a supported newer LTS release, npm, and desktop Google Chrome **120+**. Development in this workspace uses Node 24. Dependencies are pinned by `package-lock.json`. In this cloud workspace, use `export npm_config_cache=/tmp/tabmarker-npm-cache` before installation because the default home cache is not writable.
+Requirements: Node.js **22.12+** or a supported newer LTS release, npm, and desktop Google Chrome **120+**. Local verification uses Node 24. Dependencies are pinned by `package-lock.json`. If a restricted cloud workspace has an unwritable default npm cache, select a writable one before installation, for example `export npm_config_cache=/tmp/tabmarker-npm-cache`.
 
 ```sh
 npm ci
@@ -19,7 +19,7 @@ npm run build
 4. **Refresh HTTP(S) pages that were already open before installation.** Content scripts are injected when a page loads; the extension does not request programmatic scripting permission to retrofit old pages.
 5. Open the toolbar popup on a normal website, choose a title and/or colored icon, select a scope, and save.
 
-The source directory itself is not the unpacked extension. `npm run build` typechecks TypeScript, builds React pages with Vite/Tailwind, and bundles the worker and isolated content script into `dist`.
+The source directory itself is not the unpacked extension. `npm run build` typechecks TypeScript, builds React pages with Vite and the Tailwind 4 Vite plugin, and bundles the worker and isolated content script into `dist`.
 
 For iterative development:
 
@@ -123,6 +123,6 @@ CHROMIUM_PATH=/path/to/chromium npm run test:browser
 
 Use Chromium that supports unpacked-extension loading and whose policy permits it. Some branded Chrome builds disallow extension-loading automation flags. The fixture runs headlessly, creates a temporary profile, and removes it after the test; no live customer application is used. On systems without Chromium, install an appropriate system package or supply a compatible installed executable through `CHROMIUM_PATH`.
 
-The current cloud image sets managed `ExtensionInstallBlocklist: ["*"]`, which prevents the full-extension suite from loading TabMarker. Its managed policy has not been changed or bypassed. Downloading a separate official test browser is also blocked by the current network proxy; required download-domain additions were saved for environment review. Use an authorized test browser that permits unpacked extensions to complete those checks. Exact attempts and results are recorded below.
+The original cloud image blocked all extension installation and test-browser downloads. Local verification on ubt-lab used an already installed Chrome for Testing browser that permits unpacked extensions; all suites now pass. Set `CHROMIUM_PATH` when `/usr/bin/chromium` is unavailable. No managed policy was changed. The historical cloud blockers and current local results are recorded in [docs/validation.md](docs/validation.md).
 
-Test execution results and the precise scope of the worker-suspension/browser-restart evidence are recorded in [docs/validation.md](docs/validation.md). A native context menu still requires a manual visual check in the target Chrome version. Live Autotask testing remains separate; follow [docs/autotask-testing.md](docs/autotask-testing.md). Do not infer live Autotask support from synthetic browser fixtures.
+Test execution results and the precise scope of the worker-suspension/browser-restart evidence are recorded in [docs/validation.md](docs/validation.md). The native context menu and inactive-tab targeting were visually exercised on Chrome for Testing 151; check availability in other target Chrome versions. Live Autotask testing remains separate; follow [docs/autotask-testing.md](docs/autotask-testing.md). Do not infer live Autotask support from synthetic browser fixtures.

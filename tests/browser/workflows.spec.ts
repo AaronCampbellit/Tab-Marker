@@ -129,18 +129,27 @@ test('temporary overrides survive navigation and actual service-worker terminati
   const worker = extension.context.serviceWorkers()[0];
   expect(worker).toBeTruthy();
   const cdp = await extension.context.newCDPSession(extension.bridge);
-  const { targetInfos } = await cdp.send('Target.getTargets');
-  const target = targetInfos.find((candidate) => candidate.type === 'service_worker' && candidate.url === worker.url());
-  expect(target, 'The extension worker must exist before termination').toBeTruthy();
-  const destroyed = worker.waitForEvent('close');
-  const restarted = extension.context.waitForEvent('serviceworker', (candidate) => candidate !== worker);
-  const { success } = await cdp.send('Target.closeTarget', { targetId: target!.targetId });
-  expect(success, 'CDP must acknowledge service-worker target termination').toBe(true);
-  await destroyed;
-  expect(extension.context.serviceWorkers()).not.toContain(worker);
+  const versions = new Map<string, { versionId: string; scriptURL: string; runningStatus: string }>();
+  cdp.on('ServiceWorker.workerVersionUpdated', ({ versions: updates }) => {
+    for (const version of updates) versions.set(version.versionId, version);
+  });
+  await cdp.send('ServiceWorker.enable');
+  const currentVersion = () => [...versions.values()].find(version => version.scriptURL === worker.url());
+  await expect.poll(() => currentVersion()?.runningStatus).toBe('running');
+  const before = currentVersion()!;
+  await worker.evaluate(() => {
+    (globalThis as typeof globalThis & { __tabmarkerWorkerSentinel?: boolean }).__tabmarkerWorkerSentinel = true;
+  });
+  expect(await worker.evaluate(() =>
+    (globalThis as typeof globalThis & { __tabmarkerWorkerSentinel?: boolean }).__tabmarkerWorkerSentinel)).toBe(true);
+  await cdp.send('ServiceWorker.stopWorker', { versionId: before.versionId });
+  await expect.poll(() => versions.get(before.versionId)?.runningStatus).toBe('stopped');
+  // Playwright and Chrome can preserve worker/target handles across suspension.
+  // Lifecycle events plus loss of a worker-global sentinel prove a fresh execution.
   const state = await extension.request({ type: 'GET_STATE', tabId });
-  const newWorker = await restarted;
-  expect(newWorker).not.toBe(worker);
+  await expect.poll(() => currentVersion()?.runningStatus).toBe('running');
+  expect(await worker.evaluate(() =>
+    (globalThis as typeof globalThis & { __tabmarkerWorkerSentinel?: boolean }).__tabmarkerWorkerSentinel)).toBeUndefined();
   expect(state.tab?.temporary).toBe(true);
   await page.goto(`${extension.baseURL}/module/beta`);
   await expect(page).toHaveTitle('Temporary workspace');
@@ -180,9 +189,12 @@ test('settings can create, search, edit, disable, re-enable, and delete a rule',
   await expect(page).toHaveTitle('Edited workspace');
   await options.getByLabel('Search rules', { exact: true }).fill('');
   const enabled = options.getByRole('checkbox', { name: 'Enable rule Edited workspace', exact: true });
-  await enabled.uncheck();
+  await enabled.click();
+  await expect(enabled).not.toBeChecked();
   await expect(page).toHaveTitle('Original · Alpha');
-  await enabled.check();
+  await expect(enabled).toBeEnabled();
+  await enabled.click();
+  await expect(enabled).toBeChecked();
   await expect(page).toHaveTitle('Edited workspace');
   await options.getByRole('button', { name: 'Delete rule Edited workspace', exact: true }).click();
   await options.getByRole('button', { name: 'Confirm delete rule', exact: true }).click();

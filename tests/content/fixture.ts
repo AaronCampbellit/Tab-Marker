@@ -38,7 +38,9 @@ export class ContentHarness {
         },
       };
       // Only the runtime boundary is mocked. All observers and DOM mutations run in Chromium.
-      Object.defineProperty(window, 'chrome', { configurable: true, value: { runtime } });
+      // Chrome exposes a non-configurable window.chrome; keep that object and
+      // mock only the runtime API that this component suite owns.
+      Object.defineProperty(window.chrome, 'runtime', { configurable: true, value: runtime });
       new MutationObserver((records) => { controls.mutationCount += records.length; })
         .observe(document.head, { subtree: true, childList: true, attributes: true, characterData: true });
     }, { desired: customization, routes: options.routes ?? {} });

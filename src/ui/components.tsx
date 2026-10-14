@@ -27,7 +27,7 @@ export function customizationFrom(value: AppearanceForm): Customization {
 
 export function Brand({ subtitle, compact = false }: { subtitle: string; compact?: boolean }) {
   return <header className={`flex items-center gap-3 ${compact ? 'mb-5' : 'mb-8'}`}>
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm" aria-hidden="true">
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-xs" aria-hidden="true">
       <svg width="25" height="25" viewBox="0 0 24 24" fill="none"><path d="M8 5h11v13M5 8h11v12H5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M8 12h5M10.5 12v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
     </div>
     <div><h1 className="text-xl font-bold tracking-tight text-slate-900">TabMarker</h1><p className="mt-0.5 text-xs text-slate-500">{subtitle}</p></div>
