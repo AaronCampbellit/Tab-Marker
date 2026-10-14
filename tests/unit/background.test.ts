@@ -1,0 +1,189 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppState, Request, Response, Rule } from '../../src/shared/types';
+
+const STATE_KEY = 'tabmarker.state';
+const OVERRIDES_KEY = 'tabmarker.overrides';
+const EXTENSION_ID = 'tabmarker-test-extension';
+const PAGE_URL = 'https://example.com/Module';
+type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, reply: (response: unknown) => void) => boolean | void;
+type StorageListener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => void;
+
+function mockEvent<T>() {
+  const listeners: T[] = [];
+  return { listeners, addListener: (listener: T) => listeners.push(listener), clear: () => { listeners.length = 0; } };
+}
+
+function createChromeMock() {
+  const local: Record<string, unknown> = {};
+  const session: Record<string, unknown> = {};
+  const onMessage = mockEvent<MessageListener>();
+  const onChanged = mockEvent<StorageListener>();
+  const onRemoved = mockEvent<(id: number) => void>();
+  const onUpdated = mockEvent<() => void>();
+  const onInstalled = mockEvent<() => void>();
+  const onStartup = mockEvent<() => void>();
+  const onClicked = mockEvent<() => void>();
+  function storageArea(data: Record<string, unknown>, name: 'local' | 'session') {
+    return {
+      get: vi.fn(async (key: string) => {
+        await Promise.resolve();
+        return key in data ? { [key]: structuredClone(data[key]) } : {};
+      }),
+      set: vi.fn(async (values: Record<string, unknown>) => {
+        await Promise.resolve();
+        const changes: Record<string, chrome.storage.StorageChange> = {};
+        for (const [key, value] of Object.entries(values)) {
+          if (JSON.stringify(data[key]) === JSON.stringify(value)) continue;
+          changes[key] = { oldValue: structuredClone(data[key]), newValue: structuredClone(value) };
+          data[key] = structuredClone(value);
+        }
+        if (Object.keys(changes).length) for (const listener of onChanged.listeners) listener(changes, name);
+      }),
+      setAccessLevel: vi.fn(async () => undefined),
+    };
+  }
+  const tab = { id: 7, url: PAGE_URL, active: true, windowId: 1 };
+  const api = {
+    runtime: {
+      id: EXTENSION_ID,
+      getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
+      onMessage,
+      onInstalled,
+      onStartup,
+      openOptionsPage: vi.fn(async () => undefined),
+    },
+    storage: { local: storageArea(local, 'local'), session: storageArea(session, 'session'), onChanged },
+    tabs: {
+      get: vi.fn(async (id: number) => {
+        if (id !== tab.id) throw new Error('No tab with that id.');
+        return { ...tab };
+      }),
+      query: vi.fn(async () => [{ ...tab }]),
+      sendMessage: vi.fn(async (_id: number, message: { type: string }) => message.type === 'TM_PING' ? { supported: true } : { ok: true }),
+      onRemoved,
+      onUpdated,
+    },
+    contextMenus: {
+      removeAll: vi.fn(async () => undefined),
+      create: vi.fn((properties: chrome.contextMenus.CreateProperties, callback: () => void) => {
+        if (properties.contexts?.includes('tab')) throw new Error('Unsupported tab context in this mock browser.');
+        callback();
+        return properties.id;
+      }),
+      onClicked,
+    },
+    windows: { create: vi.fn(async () => undefined) },
+  };
+  const uiSender: chrome.runtime.MessageSender = { id: EXTENSION_ID, url: api.runtime.getURL('options.html') };
+  async function send<T = AppState>(message: Request | { type: 'TM_READY'; url: string }, sender = uiSender): Promise<Response<T> | undefined> {
+    const listener = onMessage.listeners[0];
+    if (!listener) throw new Error('Background message listener was not registered synchronously.');
+    return new Promise(resolve => {
+      const keepOpen = listener(message, sender, response => resolve(response as Response<T>));
+      if (!keepOpen) resolve(undefined);
+    });
+  }
+  async function request<T = AppState>(message: Request): Promise<T> {
+    const response = await send<T>(message);
+    if (!response?.ok) throw new Error(response?.error ?? 'Message was rejected.');
+    return response.data;
+  }
+  async function load() {
+    await import('../../src/background/index');
+    // Real worker operations serialize behind initialization and storage events.
+    await request({ type: 'GET_STATE', tabId: tab.id });
+    await request({ type: 'GET_STATE', tabId: tab.id });
+  }
+  async function restartModule() {
+    await request({ type: 'GET_STATE', tabId: tab.id });
+    for (const event of [onMessage, onChanged, onRemoved, onUpdated, onInstalled, onStartup, onClicked]) event.clear();
+    vi.resetModules();
+    await load();
+  }
+  return { api, local, session, tab, send, request, load, restartModule };
+}
+
+function rule(id: string, match = PAGE_URL): Rule {
+  return { id, enabled: true, scope: 'exact', match, title: id, icon: null, createdAt: 1, updatedAt: 1 };
+}
+
+describe('real background module with mocked Chrome API boundaries', () => {
+  let browser: ReturnType<typeof createChromeMock>;
+  beforeEach(() => {
+    vi.resetModules();
+    browser = createChromeMock();
+    vi.stubGlobal('chrome', browser.api);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('serializes simultaneous rule writes without losing rules', async () => {
+    await browser.load();
+    await Promise.all(Array.from({ length: 12 }, (_, index) => browser.request({
+      type: 'UPSERT_RULE', rule: rule(`rule-${index}`, `https://example.com/module/${index}`),
+    })));
+    const result = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
+    expect(result.rules.map(item => item.id).sort()).toEqual(Array.from({ length: 12 }, (_, index) => `rule-${index}`).sort());
+    expect(browser.local[STATE_KEY]).toEqual({ version: 2, rules: result.rules });
+    expect(browser.api.storage.local.setAccessLevel).toHaveBeenCalledWith({ accessLevel: 'TRUSTED_CONTEXTS' });
+    expect(result.nativeTabMenu).toBe(false);
+  });
+
+  it('migrates known state but rejects a future schema without overwriting it', async () => {
+    browser.local[STATE_KEY] = { version: 1, rules: [{ ...rule('legacy'), icon: { color: '#123456', letter: 'L' } }] };
+    await browser.load();
+    const migrated = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
+    expect(migrated.rules[0].icon).toEqual({ color: '#123456', glyph: 'L' });
+    expect(browser.local[STATE_KEY]).toEqual({ version: 2, rules: migrated.rules });
+    const future = { version: 9, rules: [{ futureData: 'preserve me' }] };
+    browser.local[STATE_KEY] = structuredClone(future);
+    const rejected = await browser.send({ type: 'UPSERT_RULE', rule: rule('new') });
+    expect(rejected).toEqual({ ok: false, error: expect.stringContaining('unsupported schema version') });
+    expect(browser.local[STATE_KEY]).toEqual(future);
+  });
+
+  it('recovers persistent rules and temporary session overrides after a module reload', async () => {
+    await browser.load();
+    await browser.request({ type: 'SAVE_CUSTOMIZATION', tabId: browser.tab.id, scope: 'exact', title: 'Persistent', icon: null });
+    await browser.request({ type: 'SAVE_CUSTOMIZATION', tabId: browser.tab.id, scope: 'tab', title: 'Temporary', icon: { color: '#123456', glyph: 'T' } });
+    const savedLocal = structuredClone(browser.local[STATE_KEY]);
+    const savedOverrides = structuredClone(browser.session[OVERRIDES_KEY]);
+    await browser.restartModule();
+    const result = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
+    expect(result.tab).toMatchObject({ temporary: true, matchedRuleId: null, customization: { title: 'Temporary' } });
+    expect(browser.local[STATE_KEY]).toEqual(savedLocal);
+    expect(browser.session[OVERRIDES_KEY]).toEqual(savedOverrides);
+    const removed = await browser.request({ type: 'REMOVE_APPLIED', tabId: browser.tab.id });
+    expect(removed.tab).toMatchObject({ temporary: false, customization: { title: 'Persistent' } });
+  });
+
+  it('rejects management commands from content pages and other extensions', async () => {
+    await browser.load();
+    const contentSender: chrome.runtime.MessageSender = { id: EXTENSION_ID, url: PAGE_URL, tab: browser.tab as chrome.tabs.Tab, frameId: 0 };
+    expect(await browser.send({ type: 'UPSERT_RULE', rule: rule('unauthorized') }, contentSender)).toBeUndefined();
+    expect(await browser.send({ type: 'DELETE_RULE', id: 'anything' }, { id: 'another-extension', url: browser.api.runtime.getURL('options.html') })).toBeUndefined();
+    expect(await browser.send({ type: 'TM_READY', url: PAGE_URL }, { ...contentSender, frameId: 1 })).toBeUndefined();
+    expect(await browser.send({ type: 'TM_READY', url: PAGE_URL }, contentSender)).toEqual({ ok: true, data: null });
+    expect((await browser.request({ type: 'GET_STATE', tabId: browser.tab.id })).rules).toEqual([]);
+  });
+
+  it('keeps stored timestamps valid and monotonic when the system clock moves backward', async () => {
+    const futureRule = { ...rule('clock-safe'), createdAt: 1000, updatedAt: 2000 };
+    browser.local[STATE_KEY] = { version: 2, rules: [futureRule] };
+    vi.spyOn(Date, 'now').mockReturnValue(100);
+    await browser.load();
+    const operations: Request[] = [
+      { type: 'UPSERT_RULE', rule: { ...futureRule, title: 'Edited' } },
+      { type: 'TOGGLE_RULE', id: futureRule.id, enabled: false },
+      { type: 'SAVE_CUSTOMIZATION', tabId: browser.tab.id, scope: 'exact', title: 'Saved again', icon: null },
+    ];
+    for (const operation of operations) {
+      await browser.request(operation);
+      const stored = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
+      expect(stored.rules).toHaveLength(1);
+      expect(stored.rules[0]).toMatchObject({ id: futureRule.id, createdAt: 1000, updatedAt: 2000 });
+    }
+  });
+});
