@@ -1,5 +1,11 @@
 # Validation record
 
+## Default scope in 0.4.3 - October 15, 2026
+
+- Production build and TypeScript passed.
+- Built popup checked in installed headless Chrome with mocked Chrome APIs: a new customization selects Exact URL, an existing saved pattern still selects URL pattern, and an active temporary override still selects This tab only.
+- No matching or storage behavior changed; the broader unit suite was not repeated for this two-line UI default change. The temporary browser and QA server were stopped.
+
 ## Rule scope help in 0.4.2 - October 15, 2026
 
 - Production build and TypeScript passed; the existing **209 unit tests passed**. This copy and accessibility-association change adds no matching or persistence behavior.

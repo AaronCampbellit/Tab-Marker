@@ -31,6 +31,10 @@ This rebuilds the unpacked extension after source changes. Wait for a successful
 
 Disabling, removing, or reloading the extension can leave its current document title/favicon in place until the website is refreshed. Rule removal through TabMarker can restore metadata while its script is connected; Chrome unloading the script does not provide a reliable cleanup callback. Refresh affected pages after disabling/removing and after reinstalling/reloading.
 
+## Default scope in 0.4.3
+
+New toolbar customizations default to **Exact URL**, matching the rule editor. An existing saved rule keeps its scope, and an active temporary customization keeps **This tab only** selected.
+
 ## Rule scope help in 0.4.2
 
 Version **0.4.2** adds contextual help for every Rule scope in the popup and settings. Each option explains its lifetime and page coverage, with examples; recognized Autotask Exact URL rules explain the screen-specific match. The help is associated with its scope selector for assistive technology.

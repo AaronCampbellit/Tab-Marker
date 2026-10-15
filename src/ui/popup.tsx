@@ -16,7 +16,7 @@ function tabIdFromLocation(): number | undefined {
 function Popup() {
   const [state, setState] = useState<AppState | null>(null);
   const [appearance, setAppearance] = useState<AppearanceForm>(appearanceFrom(null));
-  const [scope, setScope] = useState<RuleScope | 'tab'>('tab');
+  const [scope, setScope] = useState<RuleScope | 'tab'>('exact');
   const [pattern, setPattern] = useState('');
   const [patternLoading, setPatternLoading] = useState(false);
   const patternSeeded = useRef(false);
@@ -40,7 +40,7 @@ function Popup() {
       dirty.current = false;
       setAppearance(appearanceFrom(tab.customization));
       const rule = next.rules.find(item => item.id === tab.matchedRuleId);
-      setScope(tab.temporary ? 'tab' : rule?.scope ?? (getAutotaskView(tab.url) ? 'exact' : 'tab'));
+      setScope(tab.temporary ? 'tab' : rule?.scope ?? 'exact');
       if (reset || changedTab) {
         patternRequest.current++;
         setPatternLoading(false);
