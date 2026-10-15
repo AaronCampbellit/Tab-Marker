@@ -9,7 +9,7 @@ import type { AppearanceForm } from './components';
 import './styles.css';
 import { Backups } from './backups';
 import { ModuleDiagnostics } from './diagnostics';
-import { UpdateNotice } from './updates';
+import { UpdateNotice, VersionLabel } from './updates';
 
 interface Editor { rule: Rule; appearance: AppearanceForm; isNew: boolean }
 
@@ -150,7 +150,7 @@ function Options() {
     <Backups/>
     <ModuleDiagnostics rules={rules}/>
     <details className="mt-7 rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer text-sm font-semibold text-slate-700">How rules are chosen</summary><p className="hint">Temporary tab override → exact URL → URL pattern → domain. An exact Autotask screen rule takes priority over an exact rule for the shared landing page. More specific patterns win; ties use the most recently updated rule, then the rule ID. Disabling or deleting the winning rule can reveal another match.</p><p className="hint">Rules survive navigation, reopened tabs, and Chrome restarts. Temporary tab overrides end when the tab closes or Chrome restarts. Chrome’s protected pages cannot be customized.</p></details>
-    <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-5 text-xs text-slate-400"><span>TabMarker · Local-first, no account required</span><span>Only the matching rules you choose are stored</span></footer>
+    <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-5 text-xs text-slate-500"><span>TabMarker · Local-first, no account required</span><VersionLabel/></footer>
   </main>;
 }
 

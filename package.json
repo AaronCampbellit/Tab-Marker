@@ -1,12 +1,15 @@
 {
   "name": "tabmarker",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "type": "module",
   "description": "Local-first persistent tab titles and colored favicons for Chrome.",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "npm run typecheck && vite build && node scripts/bundle.mjs",
+    "build": "npm run version:sync && npm run typecheck && vite build && node scripts/bundle.mjs",
+    "version": "node scripts/sync-version.mjs",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:check": "node scripts/sync-version.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run",

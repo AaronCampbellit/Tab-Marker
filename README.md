@@ -1,5 +1,11 @@
 # TabMarker
 
+## 0.4.5: visible version and synchronized release metadata
+
+The popup and Manage rules page show the currently running version in their bottom footer. The value comes from Chrome's loaded manifest, including while a newer deployment awaits reload. `package.json` is the source of truth for build and release versions. Use `npm version patch --no-git-tag-version`; its hook updates the manifest, deployment marker and lockfile automatically. Builds synchronize those values, and packaging verifies the source and built versions agree. With a matching local release tag, extension/build edits require a new version before building. Project rules are recorded in [AGENTS.md](AGENTS.md).
+
+Download the current compiled extension and pinned RMM script from the [0.4.5 release](https://github.com/AaronCampbellit/Tab-Marker/releases/tag/v0.4.5).
+
 ## 0.4.4: RMM deployment and reload prompt
 
 The popup and Manage rules page detect completed local deployments and offer **Update installed — Reload TabMarker**. Saved rules stay in the Chrome profile; temporary labels reset and website tabs should be refreshed. See [RMM deployment instructions](docs/RMM-DEPLOYMENT.md) for the Windows updater, pinned release packaging, discovery, dry run, backup, rollback, reporting, and pilot-test limits.

@@ -7,10 +7,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $repo = Split-Path $PSScriptRoot -Parent
+& node (Join-Path $PSScriptRoot 'sync-version.mjs') --check
+if ($LASTEXITCODE -ne 0) { throw 'Version checks failed. Bump/synchronize the version and rebuild before packaging.' }
+$source = Get-Content -LiteralPath (Join-Path $repo 'package.json') -Raw | ConvertFrom-Json
 $dist = Join-Path $repo 'dist'
 $manifest = Get-Content -LiteralPath (Join-Path $dist 'manifest.json') -Raw | ConvertFrom-Json
 $marker = Get-Content -LiteralPath (Join-Path $dist 'update-status.json') -Raw | ConvertFrom-Json
-if ($manifest.name -cne 'TabMarker' -or $manifest.version -notmatch '^\d+(\.\d+){0,3}$' -or $marker.version -cne $manifest.version -or $marker.state -cne 'ready') { throw 'Build and deployment metadata do not match. Run npm run build first.' }
+if ($manifest.name -cne 'TabMarker' -or $manifest.version -notmatch '^\d+(\.\d+){0,3}$' -or $manifest.version -cne $source.version -or $marker.version -cne $manifest.version -or $marker.state -cne 'ready') { throw 'Build, source and deployment metadata do not match. Run npm run build first.' }
 $destination = [IO.Path]::GetFullPath($OutputDirectory)
 if ($destination.StartsWith($dist + '\', [StringComparison]::OrdinalIgnoreCase) -or $destination -eq $dist) { throw 'OutputDirectory must be outside dist.' }
 [void][IO.Directory]::CreateDirectory($destination)
@@ -21,7 +24,7 @@ if (Test-Path -LiteralPath $zip) { throw 'Release ZIP already exists. Use a new 
 $checksum = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 $downloadUrl = "https://github.com/$Repository/releases/download/v$($manifest.version)/$packageName"
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Update-TabMarker.ps1') -Destination $destination
-$guide = [IO.File]::ReadAllText((Join-Path $repo 'docs\RMM-DEPLOYMENT.md')).Replace('Deploy-TabMarker-0.4.4.ps1', "Deploy-TabMarker-$($manifest.version).ps1").Replace('TabMarker-Chrome-0.4.4.zip', $packageName)
+$guide = [IO.File]::ReadAllText((Join-Path $repo 'docs\RMM-DEPLOYMENT.md')).Replace('<version>', $manifest.version).Replace('AaronCampbellit/Tab-Marker', $Repository)
 [IO.File]::WriteAllText((Join-Path $destination 'README-RMM.md'), $guide)
 [IO.File]::WriteAllText((Join-Path $destination 'SHA256SUMS.txt'), "$checksum  $packageName`r`n")
 $release = [ordered]@{ product = 'TabMarker'; version = $manifest.version; file = $packageName; downloadUrl = $downloadUrl; sha256 = $checksum; bytes = (Get-Item -LiteralPath $zip).Length; builtAtUtc = [DateTime]::UtcNow.ToString('o') }

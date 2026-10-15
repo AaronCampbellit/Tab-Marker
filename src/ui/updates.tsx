@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { readDeployment, type UpdateState } from '../shared/deployment';
 
+export function VersionLabel() {
+  const version = chrome.runtime.getManifest().version;
+  return <span aria-label={`TabMarker version ${version}`} title="Currently running extension version">Version {version}</span>;
+}
+
 export function UpdateNotice({ busy = false, hasUnsavedChanges = () => false }: { busy?: boolean; hasUnsavedChanges?: () => boolean }) {
   const [update, setUpdate] = useState<UpdateState>({ kind: 'current', running: chrome.runtime.getManifest().version });
   const [error, setError] = useState('');
@@ -36,13 +41,14 @@ export function UpdateNotice({ busy = false, hasUnsavedChanges = () => false }: 
     }
   }
 
+  if (update.kind === 'current' && !error) return null;
   return <section className={`update-notice ${update.kind === 'ready' || update.kind === 'applying' ? 'update-pending' : ''}`} aria-label="TabMarker update status">
     {update.kind === 'ready' ? <>
       <p className="update-title" role="status">Update installed · v{update.installed}</p>
       <p className="hint">Running v{update.running}. Saved rules stay. Temporary tab labels reset; refresh open websites afterward.</p>
       <button className="primary mt-2 w-full" type="button" disabled={busy || reloading} onClick={() => void reload()}>{reloading ? 'Reloading…' : 'Update installed — Reload TabMarker'}</button>
     </> : update.kind === 'applying' ? <p role="status">Installing an update… Reload will be available when it finishes.</p>
-      : <span>TabMarker v{update.running}{update.kind === 'unavailable' ? ' · Update status unavailable' : ''}</span>}
+      : update.kind === 'unavailable' ? <span>Update status unavailable</span> : null}
     {error && <p className="hint text-rose-700" role="alert">{error}</p>}
   </section>;
 }

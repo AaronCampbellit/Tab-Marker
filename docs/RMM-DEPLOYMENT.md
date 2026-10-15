@@ -4,18 +4,18 @@ This package updates **existing unpacked installations** on Windows using Window
 
 ## Quick deployment
 
-Use **`Deploy-TabMarker-0.4.4.ps1`** as your RMM PowerShell component. It is standalone: paste its contents into the component or launch the downloaded file. No helper script or ZIP attachment is needed for online deployment.
+Use **`Deploy-TabMarker-<version>.ps1`** as your RMM PowerShell component. It is standalone: paste its contents into the component or launch the downloaded file. No helper script or ZIP attachment is needed for online deployment.
 
-It downloads the built extension from `https://github.com/AaronCampbellit/Tab-Marker/releases/download/v0.4.4/TabMarker-Chrome-0.4.4.zip`. The expected 0.4.4 version and SHA-256 are pinned in the launcher. It does not follow `main`, the latest release, or GitHub's source-code ZIPs. Use a newly generated launcher for each future release.
+It downloads the built extension from `https://github.com/AaronCampbellit/Tab-Marker/releases/download/v<version>/TabMarker-Chrome-<version>.zip`. The expected release version and SHA-256 are pinned in the launcher. It does not follow `main`, the latest release, or GitHub's source-code ZIPs. Use a newly generated launcher for each future release.
 
 Run as **LocalSystem** to reach all local Windows user profiles. First run the script with `-DryRun`; review the target paths and warnings. Then run it without `-DryRun` to deploy:
 
 ```powershell
-powershell.exe -NoLogo -NoProfile -File .\Deploy-TabMarker-0.4.4.ps1 -DryRun
-powershell.exe -NoLogo -NoProfile -File .\Deploy-TabMarker-0.4.4.ps1
+powershell.exe -NoLogo -NoProfile -File .\Deploy-TabMarker-<version>.ps1 -DryRun
+powershell.exe -NoLogo -NoProfile -File .\Deploy-TabMarker-<version>.ps1
 ```
 
-For offline/RMM-attachment deployment, pass `-PackagePath 'C:\your-attachment-folder\TabMarker-Chrome-0.4.4.zip'`. This explicitly replaces the default download with that local ZIP. A `-PackageUrl` override can use a mirror serving the exact same bytes; the version and checksum remain pinned. The generic `Update-TabMarker.ps1` is also supplied for custom integrations and requires explicit version, checksum, and package source. Private GitHub credentials are not bundled.
+For offline/RMM-attachment deployment, pass `-PackagePath 'C:\your-attachment-folder\TabMarker-Chrome-<version>.zip'`. This explicitly replaces the default download with that local ZIP. A `-PackageUrl` override can use a mirror serving the exact same bytes; the version and checksum remain pinned. The generic `Update-TabMarker.ps1` is also supplied for custom integrations and requires explicit version, checksum, and package source. Private GitHub credentials are not bundled.
 
 ## What users see
 
@@ -67,7 +67,7 @@ Console lines are easy to parse:
 
 ## Future releases
 
-Increment `package.json`, the root package entry in `package-lock.json`, `public/manifest.json`, and `public/update-status.json` to the same new version. Then:
+Run `npm version patch --no-git-tag-version` (or minor/major when appropriate). Its hook synchronizes all version metadata from `package.json`. Then:
 
 ```powershell
 npm run build
