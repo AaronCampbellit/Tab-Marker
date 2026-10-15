@@ -1,5 +1,11 @@
 # TabMarker
 
+## 0.4.7: clean deployment leftovers, keep the log
+
+The RMM updater now removes its downloaded ZIP, extraction staging and temporary rollback backups after each run, leaving only `install.log`. Final structured results are recorded in that log and the RMM console instead of a separate JSON file. Automatic rollback still runs before cleanup; only a failed rollback retains its needed recovery backup. Cleanup failures are reported with a nonzero exit code. Existing extension files, user rules, downloaded launchers/offline source packages and previous run folders are outside cleanup's scope. See [RMM deployment instructions](docs/RMM-DEPLOYMENT.md).
+
+Use the [0.4.7 release](https://github.com/AaronCampbellit/Tab-Marker/releases/tag/v0.4.7) for the cleanup-enabled standalone launcher. Older downloaded scripts keep their original behavior.
+
 ## 0.4.6: startup logging and desktop profile discovery fix
 
 The standalone RMM script now creates `install.log` and a starting JSON report before profile discovery, streams progress to the console, and records early failures. Protected Windows service profiles are skipped, inaccessible desktop profiles produce individual warnings, and failed work-directory setup gets a diagnostic-only fallback under the invoking account's local app data. Normal Microsoft Cloud Files folders such as OneDrive are recognized without allowing junctions or symbolic links. The on-device logging failure was reproduced using the published 0.4.4 launcher and the corrected discovery was validated in a dry run; no existing extension was changed by that diagnostic.

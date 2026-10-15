@@ -31,6 +31,7 @@ $script:LogPath = $null
 $script:Phase = 'Startup'
 $script:LogWriteFailed = $false
 $script:DiagnosticOnly = $false
+$script:OwnedRunPath = $null
 Write-Output ('TABMARKER_START PowerShell=' + $PSVersionTable.PSVersion + ' PID=' + $PID)
 
 function Log([string]$Level, [string]$Message) {
@@ -136,6 +137,7 @@ function InitializeRun([string]$Root) {
     NoLinks $script:RunPath
     [void][IO.Directory]::CreateDirectory($script:RunPath)
     NoLinks $script:RunPath
+    $script:OwnedRunPath = FullPath $script:RunPath
     $script:LogPath = Join-Path $script:RunPath 'install.log'
     [IO.File]::WriteAllText($script:LogPath, '', [Text.Encoding]::UTF8)
     Write-Host ('TABMARKER_LOG=' + $script:LogPath)
@@ -151,7 +153,63 @@ function InitializeRun([string]$Root) {
     }
     Set-Acl -LiteralPath $script:RunPath -AclObject $acl
     Log 'INFO' ('Account=' + $account.Name + '; Process64Bit=' + [Environment]::Is64BitProcess)
-    WriteJson (Join-Path $script:RunPath 'report.json') ([ordered]@{ schemaVersion = 1; product = 'TabMarker'; state = 'Running'; phase = $script:Phase; runPath = $script:RunPath; logPath = $script:LogPath; startedAtUtc = [DateTime]::UtcNow.ToString('o'); dryRun = [bool]$DryRun })
+}
+function RemoveRunItem([string]$Path) {
+    # Only this invocation's freshly created run directory is eligible. Never
+    # recursively delete an unchecked path or follow a redirect out of it.
+    if (!$script:OwnedRunPath) { throw 'Cleanup has no owned run directory.' }
+    $pathToRemove = FullPath $Path
+    $owned = FullPath $script:OwnedRunPath
+    if ($owned -cne (FullPath $script:RunPath) -or $pathToRemove -eq $owned -or !(IsWithin $pathToRemove $owned) -or $pathToRemove -eq $script:LogPath) { throw 'Cleanup path is outside disposable run content.' }
+    NoLinks $pathToRemove
+    if (!(Test-Path -LiteralPath $pathToRemove)) { return }
+    $item = Get-Item -LiteralPath $pathToRemove -Force
+    if ($item.PSIsContainer) {
+        foreach ($child in (Get-ChildItem -LiteralPath $pathToRemove -Force)) { RemoveRunItem $child.FullName }
+    }
+    for ($attempt = 0; $attempt -lt 4; $attempt++) {
+        try {
+            NoLinks $pathToRemove
+            if ($item.PSIsContainer) { [IO.Directory]::Delete($pathToRemove, $false) }
+            else { [IO.File]::Delete($pathToRemove) }
+            return
+        } catch {
+            if ($attempt -eq 3) { throw "Cannot clean $pathToRemove : $($_.Exception.Message)" }
+            Start-Sleep -Milliseconds 1000
+        }
+    }
+}
+function CleanupRun {
+    if (!$script:OwnedRunPath) { return 'Unavailable' }
+    $previousPhase = $script:Phase
+    Phase 'Cleanup' 'Removing disposable files; keeping install.log.'
+    $failed = $false; $retained = $false
+    $recovery = @($script:Results | Where-Object { $_.status -eq 'RollbackFailed' -and (Value $_ 'receipt') } | ForEach-Object { FullPath (Split-Path $_.receipt -Parent) })
+    try {
+        NoLinks $script:OwnedRunPath
+        foreach ($item in (Get-ChildItem -LiteralPath $script:OwnedRunPath -Force)) {
+            if ($item.FullName -eq $script:LogPath) { continue }
+            try {
+                if ($item.Name -eq 'backups' -and $item.PSIsContainer -and $recovery.Count -gt 0) {
+                    NoLinks $item.FullName
+                    foreach ($backup in (Get-ChildItem -LiteralPath $item.FullName -Force)) {
+                        if ((FullPath $backup.FullName) -in $recovery) { $retained = $true; Warn ('Recovery backup still needed after failed rollback: ' + $backup.FullName); continue }
+                        RemoveRunItem $backup.FullName
+                    }
+                    if (!$retained) { RemoveRunItem $item.FullName }
+                } else { RemoveRunItem $item.FullName }
+            } catch { $failed = $true; Warn ('Cleanup failed: ' + $_.Exception.Message) }
+        }
+        foreach ($row in $script:Results) {
+            $receipt = Value $row 'receipt'
+            if ($receipt -and (IsWithin (FullPath $receipt) $script:OwnedRunPath) -and !(Test-Path -LiteralPath $receipt)) { $row.receipt = $null }
+        }
+    } catch { $failed = $true; Warn ('Cleanup failed: ' + $_.Exception.Message) }
+    finally { $script:Phase = $previousPhase }
+    if ($failed) { $script:ExitCode = 1; return 'Failed' }
+    if ($retained) { return 'RecoveryRetained' }
+    Log 'INFO' 'Cleanup complete. Only install.log remains in this run directory.'
+    return 'Completed'
 }
 function Files([string]$Root) {
     NoLinks $Root
@@ -534,20 +592,21 @@ try {
     Warn $failure
 } finally {
     foreach ($row in $script:Results) { Log 'INFO' ('Target result: ' + $row.status + ' ' + $row.target) }
+    $cleanup = CleanupRun
     Log 'INFO' ('Finalizing run. Deployment exit code=' + $script:ExitCode)
     if ($script:LogWriteFailed) { $script:ExitCode = 1; $script:Warnings.Add('One or more install.log writes failed. Review console output.') }
     $state = 'Failed'; if ($script:ExitCode -eq 0) { $state = 'Completed' }
-    $report = [ordered]@{ schemaVersion = 1; product = 'TabMarker'; state = $state; phase = $script:Phase; runPath = $script:RunPath; logPath = $script:LogPath; diagnosticOnly = $script:DiagnosticOnly; completedAtUtc = [DateTime]::UtcNow.ToString('o'); dryRun = [bool]$DryRun; exitCode = $script:ExitCode; results = @($script:Results.ToArray()); warnings = @($script:Warnings.ToArray()) }
-    $reportSaved = $false
-    if ($script:RunPath) {
-        try {
-            if (Test-Path -LiteralPath $script:RunPath -PathType Container) { WriteJson (Join-Path $script:RunPath 'report.json') $report; $reportSaved = $true }
-        } catch { $script:ExitCode = 1; Log 'ERROR' ('REPORT_WRITE_FAILED=' + $_.Exception.Message); Write-Output ('REPORT_WRITE_FAILED=' + $_.Exception.Message) }
+    $report = [ordered]@{ schemaVersion = 2; product = 'TabMarker'; state = $state; phase = $script:Phase; runPath = $script:RunPath; logPath = $script:LogPath; cleanup = $cleanup; diagnosticOnly = $script:DiagnosticOnly; completedAtUtc = [DateTime]::UtcNow.ToString('o'); dryRun = [bool]$DryRun; exitCode = $script:ExitCode; results = @($script:Results.ToArray()); warnings = @($script:Warnings.ToArray()) }
+    $reportJson = $report | ConvertTo-Json -Depth 30 -Compress
+    Log 'INFO' ('TABMARKER_REPORT_JSON=' + $reportJson)
+    if ($script:LogWriteFailed -and $script:ExitCode -ne 1) {
+        $script:ExitCode = 1; $report.exitCode = 1; $report.state = 'Failed'
+        $reportJson = $report | ConvertTo-Json -Depth 30 -Compress
     }
     foreach ($row in $script:Results) { Write-Output ('TABMARKER_TARGET ' + ($row | ConvertTo-Json -Depth 8 -Compress)) }
     foreach ($warning in $script:Warnings) { Write-Output ('TABMARKER_WARNING ' + $warning) }
-    if ($reportSaved) { Write-Output ('TABMARKER_REPORT=' + (Join-Path $script:RunPath 'report.json')) }
-    else { Write-Output 'TABMARKER_REPORT_UNAVAILABLE=No writable report location. See the console error and TABMARKER_LOG_INIT_FAILED.' }
+    Write-Output ('TABMARKER_REPORT_JSON=' + $reportJson)
+    if (!$script:LogPath -or $script:LogWriteFailed) { Write-Output 'TABMARKER_LOG_UNAVAILABLE=No reliable writable log location. See the console error and TABMARKER_LOG_INIT_FAILED.' }
     Write-Output ('TABMARKER_EXIT_CODE=' + $script:ExitCode)
 }
 exit $script:ExitCode

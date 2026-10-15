@@ -26,12 +26,32 @@ function Zip([string]$Source, [string]$Name) {
 function InvokeUpdate([string[]]$Arguments, [int]$ExpectedExit = 0) {
     $lines = @(& powershell.exe -NoLogo -NoProfile -File $updater @Arguments 2>&1 | ForEach-Object { "$_" })
     $code = $LASTEXITCODE
-    $reportLine = @($lines | Where-Object { $_ -like 'TABMARKER_REPORT=*' })
+    $reportLine = @($lines | Where-Object { $_ -like 'TABMARKER_REPORT_JSON=*' })
     if ($code -ne $ExpectedExit -or $reportLine.Count -ne 1) { throw "Unexpected updater exit $code, expected $ExpectedExit : $($lines -join [Environment]::NewLine)" }
-    $report = Read ($reportLine[0].Substring('TABMARKER_REPORT='.Length))
+    $report = $reportLine[0].Substring('TABMARKER_REPORT_JSON='.Length) | ConvertFrom-Json
     if (!(Test-Path -LiteralPath $report.logPath -PathType Leaf)) { throw 'Persistent install.log was not created.' }
     if ((Get-Content -LiteralPath $report.logPath -Raw) -notlike '*Script started*') { throw 'Startup was not persisted before the operation.' }
+    $loggedReport = @(Get-Content -LiteralPath $report.logPath | Where-Object { $_ -like '*TABMARKER_REPORT_JSON=*' })[-1]
+    if ($loggedReport.Substring($loggedReport.IndexOf('TABMARKER_REPORT_JSON=')) -cne $reportLine[0]) { throw 'Log and console reports differ.' }
+    if ($report.cleanup -eq 'Completed') {
+        $leftovers = @(Get-ChildItem -LiteralPath $report.runPath -Force)
+        if ($leftovers.Count -ne 1 -or $leftovers[0].Name -ne 'install.log') { throw 'Disposable files remained after cleanup.' }
+    } else { throw "Unexpected cleanup result: $($report.cleanup)" }
     return $report
+}
+function CaptureRollback([string]$Target, [string]$Name) {
+    # Independent receipt fixture models recovery backups retained by older launchers
+    # or a failed rollback. Successful new deployments intentionally discard theirs.
+    $backupRoot = Join-Path $root $Name; $filesRoot = Join-Path $backupRoot 'files'
+    [void][IO.Directory]::CreateDirectory($filesRoot)
+    Get-ChildItem -LiteralPath $Target | Copy-Item -Destination $filesRoot -Recurse
+    $original = @(Get-ChildItem -LiteralPath $filesRoot -File -Recurse | ForEach-Object { @{ relative = $_.FullName.Substring($filesRoot.Length + 1); sha256 = (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() } })
+    $names = @{}; foreach ($file in $original) { $names[$file.relative] = $true }
+    $dist = Join-Path $repo 'dist'
+    $added = @(Get-ChildItem -LiteralPath $dist -File -Recurse | ForEach-Object { $_.FullName.Substring($dist.Length + 1) } | Where-Object { !$names.ContainsKey($_) })
+    $path = Join-Path $backupRoot 'receipt.json'
+    Json $path @{ schemaVersion = 1; product = 'TabMarker'; target = $Target; oldVersion = '0.4.3'; newVersion = $releaseVersion; originalFiles = $original; addedFiles = $added }
+    return $path
 }
 $releaseVersion = (Read (Join-Path $repo 'dist\manifest.json')).version
 $parts = [version]$releaseVersion; $nextVersion = '{0}.{1}.{2}' -f $parts.Major, $parts.Minor, ($parts.Build + 1)
@@ -47,6 +67,8 @@ $pref2 = Join-Path $chrome 'Profile 1\Preferences'; Json $pref2 $records
 $pref3 = Join-Path $chrome 'A custom profile\Secure Preferences'; Json $pref3 @{ extensions = @{ settings = @{ ('c' * 32) = @{ location = 4; path = $second } } } }
 $prefHashes = @{}; foreach ($file in @($pref1, $pref2, $pref3)) { $prefHashes[$file] = (Get-FileHash -LiteralPath $file).Hash }
 $common = @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ChromeUserDataRoot', $chrome, '-WorkRoot', (Join-Path $root 'runs'))
+$receipt = CaptureRollback $shared 'legacy-recovery-shared'
+$badReceiptPath = CaptureRollback $second 'legacy-recovery-second'
 $dry = InvokeUpdate ($common + '-DryRun')
 Assert (@($dry.results).Count -eq 2) 'discovers and deduplicates two unpacked folders from three profiles'
 Assert (@($dry.results | Where-Object { $_.status -ne 'WouldUpdate' }).Count -eq 0) 'dry run plans changes without updating targets'
@@ -62,7 +84,7 @@ foreach ($file in $prefHashes.Keys) { Assert ((Get-FileHash -LiteralPath $file).
 Assert (@($updated.results | Where-Object { !$_.reloadRequired -or $_.activeVersionVerified }).Count -eq 0) 'reports pending reload without claiming active runtime version'
 $again = InvokeUpdate $common
 Assert (@($again.results | Where-Object { $_.status -eq 'AlreadyCurrent' }).Count -eq 2) 'same release is idempotent'
-$receipt = @($updated.results | Where-Object { $_.target -eq $shared })[0].receipt
+Assert (@($updated.results | Where-Object { $_.receipt }).Count -eq 0) 'successful deployment does not advertise discarded rollback receipts'
 $rollback = InvokeUpdate @('-RollbackReceipt', $receipt, '-ChromeUserDataRoot', $chrome, '-WorkRoot', (Join-Path $root 'runs'))
 Assert ($rollback.results[0].status -eq 'RolledBack') 'explicit rollback succeeds'
 Assert ((Read (Join-Path $shared 'manifest.json')).version -eq '0.4.3') 'rollback restores old manifest'
@@ -90,14 +112,13 @@ try { $failure = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version
 finally { $handle.Dispose() }
 Assert ($failure.results[0].status -eq 'FailedRolledBack') 'interrupted write produces nonzero exit and completes automatic rollback'
 Assert ((Read (Join-Path $locked 'manifest.json')).version -eq '0.4.3') 'locked manifest is never replaced by a partial deployment'
-Assert (Test-Path -LiteralPath $failure.results[0].receipt) 'failed deployment retains verified rollback receipt'
+Assert ($null -eq $failure.results[0].receipt) 'successful automatic rollback discards its temporary backup and receipt'
 # A lock on a new release asset can fail deployment while allowing a complete automatic rollback.
 $auto = Old 'automatic-rollback'; $blocker = Join-Path $auto 'content.js'; [IO.File]::WriteAllText($blocker, 'old content')
 $handle = [IO.File]::Open($blocker, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 try { $autoFail = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ExtensionPath', $auto, '-ChromeUserDataRoot', $emptyChrome, '-WorkRoot', (Join-Path $root 'runs')) 1 }
 finally { $handle.Dispose() }
 Assert ($autoFail.results[0].status -eq 'FailedRolledBack') 'locked code file is reported as a failure with successful rollback'
-$badReceiptPath = @($updated.results | Where-Object { $_.target -eq $second })[0].receipt
 $badReceipt = Read $badReceiptPath
 $backupFile = Join-Path (Split-Path $badReceiptPath -Parent) ('files\' + $badReceipt.originalFiles[0].relative)
 [IO.File]::AppendAllText($backupFile, 'tamper')
@@ -130,7 +151,7 @@ Assert (($plainHttp.warnings -join ' ') -like '*must use HTTPS*') 'plain HTTP do
 Assert (Test-Path -LiteralPath $dry.logPath -PathType Leaf) 'dry run writes a persistent install.log'
 Assert ((Get-Content -LiteralPath $dry.logPath -Raw) -like '*[[]DiscoverProfiles[]]*') 'log captures discovery progress'
 Assert ((Get-Content -LiteralPath $badSha.logPath -Raw) -like '*SHA-256 mismatch*') 'checksum errors are persisted in install.log'
-Assert ($badSha.phase -eq 'ValidatePackage' -and $badSha.state -eq 'Failed') 'JSON report identifies the failed phase'
+Assert ($badSha.phase -eq 'ValidatePackage' -and $badSha.state -eq 'Failed') 'JSON result in log and console identifies the failed phase'
 Assert ((Get-Content -LiteralPath $none.logPath -Raw) -like '*No validated unpacked*') 'no-installation failures leave a readable log'
 $badRoot = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ChromeUserDataRoot', 'not-an-absolute-path', '-WorkRoot', (Join-Path $root 'runs')) 1
 Assert ($badRoot.phase -eq 'DiscoverProfiles') 'failure before profile discovery completes still creates a report'
@@ -152,11 +173,57 @@ try {
     $noLogsExit = $LASTEXITCODE
 } finally { $env:LOCALAPPDATA = $previousLocalData }
 Assert ($noLogsExit -eq 1) 'no writable log directory returns failure'
-Assert (($noLogs -join ' ') -like '*TABMARKER_START*' -and ($noLogs -join ' ') -like '*TABMARKER_REPORT_UNAVAILABLE=*') 'console still reports startup and missing log location when all log paths fail'
+Assert (($noLogs -join ' ') -like '*TABMARKER_START*' -and ($noLogs -join ' ') -like '*TABMARKER_LOG_UNAVAILABLE=*' -and ($noLogs -join ' ') -like '*TABMARKER_REPORT_JSON=*') 'console still reports startup, JSON results and missing log location when all log paths fail'
 $junctionTarget = Old 'junction-destination'; $junction = Join-Path $root 'junction-extension'
 [void](New-Item -ItemType Junction -Path $junction -Target $junctionTarget)
 $linked = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ExtensionPath', $junction, '-ChromeUserDataRoot', $emptyChrome, '-WorkRoot', (Join-Path $root 'runs')) 1
 Assert (($linked.warnings -join ' ') -like '*Redirecting or unsupported reparse point*') 'redirecting directory junction is still refused'
 Assert ((Read (Join-Path $junctionTarget 'manifest.json')).version -eq '0.4.3') 'rejected junction destination stays unchanged'
+# Load the production cleanup functions for isolated path/lock/recovery tests.
+# Integration invocations above also require every completed cleanup to leave only install.log.
+$tokens = $null; $parseErrors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($updater, [ref]$tokens, [ref]$parseErrors)
+$functions = @('Value', 'FullPath', 'IsWithin', 'IsCloudPlaceholder', 'NoLinks', 'Log', 'Warn', 'Phase', 'RemoveRunItem', 'CleanupRun')
+foreach ($definition in $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
+    if ($definition.Name -in $functions) { Invoke-Expression $definition.Extent.Text }
+}
+$script:OwnedRunPath = Join-Path $root 'cleanup-fixture'; $script:RunPath = $script:OwnedRunPath
+[void][IO.Directory]::CreateDirectory($script:OwnedRunPath)
+$script:LogPath = Join-Path $script:OwnedRunPath 'install.log'; [IO.File]::WriteAllText($script:LogPath, 'keep log')
+$script:Phase = 'Deploy'; $script:ExitCode = 1; $script:LogWriteFailed = $false
+$script:Warnings = New-Object 'System.Collections.Generic.List[string]'
+$script:Results = New-Object 'System.Collections.Generic.List[object]'
+$outside = Join-Path $root 'outside-cleanup.txt'; [IO.File]::WriteAllText($outside, 'must survive')
+$refused = $false; try { RemoveRunItem $outside } catch { $refused = $true }
+Assert ($refused -and [IO.File]::ReadAllText($outside) -eq 'must survive') 'cleanup refuses files outside its owned run directory'
+$refused = $false; try { RemoveRunItem $script:RunPath } catch { $refused = $true }
+Assert $refused 'cleanup refuses to delete its run root'
+$refused = $false; try { RemoveRunItem $script:LogPath } catch { $refused = $true }
+Assert ($refused -and (Test-Path -LiteralPath $script:LogPath)) 'cleanup refuses to delete install.log'
+$cleanupLink = Join-Path $script:RunPath 'staging'; [void](New-Item -ItemType Junction -Path $cleanupLink -Target $junctionTarget)
+$refused = $false; try { RemoveRunItem $cleanupLink } catch { $refused = $true }
+Assert ($refused -and (Test-Path -LiteralPath (Join-Path $junctionTarget 'manifest.json'))) 'cleanup does not traverse a junction to another directory'
+# Remove only the known junction itself, never recurse through it.
+[IO.Directory]::Delete($cleanupLink, $false)
+$needed = Join-Path $script:RunPath 'backups\needed'; $unneeded = Join-Path $script:RunPath 'backups\unneeded'
+[void][IO.Directory]::CreateDirectory($needed); [void][IO.Directory]::CreateDirectory($unneeded)
+[IO.File]::WriteAllText((Join-Path $needed 'receipt.json'), 'keep recovery'); [IO.File]::WriteAllText((Join-Path $unneeded 'receipt.json'), 'discard backup')
+$script:Results.Add([pscustomobject]@{ status = 'RollbackFailed'; receipt = (Join-Path $needed 'receipt.json') })
+[IO.File]::WriteAllText((Join-Path $script:RunPath 'package.zip'), 'discard package')
+[void][IO.Directory]::CreateDirectory($cleanupLink); [IO.File]::WriteAllText((Join-Path $cleanupLink 'asset.js'), 'discard staged code')
+$cleanupResult = CleanupRun
+Assert ($cleanupResult -eq 'RecoveryRetained') 'failed rollback preserves its still-needed recovery backup'
+Assert ((Test-Path -LiteralPath (Join-Path $needed 'receipt.json')) -and !(Test-Path -LiteralPath $unneeded)) 'recovery exception keeps only the affected backup'
+Assert (!(Test-Path -LiteralPath (Join-Path $script:RunPath 'package.zip')) -and !(Test-Path -LiteralPath $cleanupLink)) 'package and staging are removed even with a retained recovery backup'
+Assert ($script:Phase -eq 'Deploy') 'cleanup preserves the original result phase'
+$script:Results.Clear()
+$lockedCleanup = Join-Path $script:RunPath 'package.zip'; [IO.File]::WriteAllText($lockedCleanup, 'locked package')
+$handle = [IO.File]::Open($lockedCleanup, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+try { $cleanupResult = CleanupRun } finally { $handle.Dispose() }
+Assert ($cleanupResult -eq 'Failed' -and $script:ExitCode -eq 1) 'blocked cleanup returns failure after bounded retries'
+Assert (($script:Warnings -join ' ') -like '*Cleanup failed*' -and (Test-Path -LiteralPath $lockedCleanup)) 'cleanup failure is reported and does not bypass a file lock'
+$cleanupResult = CleanupRun
+Assert ($cleanupResult -eq 'Completed' -and @(Get-ChildItem -LiteralPath $script:RunPath -Force).Count -eq 1) 'completed cleanup leaves only the persistent log'
+Assert ([IO.File]::ReadAllText($script:LogPath).StartsWith('keep log')) 'cleanup preserves existing log contents'
 Write-Output "RMM_TESTS_PASSED=$passed"
 Write-Output "RMM_TEST_ROOT=$root"
