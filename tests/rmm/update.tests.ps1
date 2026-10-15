@@ -28,7 +28,10 @@ function InvokeUpdate([string[]]$Arguments, [int]$ExpectedExit = 0) {
     $code = $LASTEXITCODE
     $reportLine = @($lines | Where-Object { $_ -like 'TABMARKER_REPORT=*' })
     if ($code -ne $ExpectedExit -or $reportLine.Count -ne 1) { throw "Unexpected updater exit $code, expected $ExpectedExit : $($lines -join [Environment]::NewLine)" }
-    return Read ($reportLine[0].Substring('TABMARKER_REPORT='.Length))
+    $report = Read ($reportLine[0].Substring('TABMARKER_REPORT='.Length))
+    if (!(Test-Path -LiteralPath $report.logPath -PathType Leaf)) { throw 'Persistent install.log was not created.' }
+    if ((Get-Content -LiteralPath $report.logPath -Raw) -notlike '*Script started*') { throw 'Startup was not persisted before the operation.' }
+    return $report
 }
 $releaseVersion = (Read (Join-Path $repo 'dist\manifest.json')).version
 $parts = [version]$releaseVersion; $nextVersion = '{0}.{1}.{2}' -f $parts.Major, $parts.Minor, ($parts.Build + 1)
@@ -124,5 +127,36 @@ $duplicate = InvokeUpdate @('-PackagePath', $duplicateZip, '-Sha256', (Get-FileH
 Assert (($duplicate.warnings -join ' ') -like '*duplicate paths*') 'case-insensitive duplicate ZIP paths are rejected'
 $plainHttp = InvokeUpdate @('-PackageUrl', 'http://example.invalid/package.zip', '-Sha256', ('0' * 64), '-Version', $releaseVersion, '-ChromeUserDataRoot', $emptyChrome, '-WorkRoot', (Join-Path $root 'runs')) 1
 Assert (($plainHttp.warnings -join ' ') -like '*must use HTTPS*') 'plain HTTP downloads are refused before any network request'
+Assert (Test-Path -LiteralPath $dry.logPath -PathType Leaf) 'dry run writes a persistent install.log'
+Assert ((Get-Content -LiteralPath $dry.logPath -Raw) -like '*[[]DiscoverProfiles[]]*') 'log captures discovery progress'
+Assert ((Get-Content -LiteralPath $badSha.logPath -Raw) -like '*SHA-256 mismatch*') 'checksum errors are persisted in install.log'
+Assert ($badSha.phase -eq 'ValidatePackage' -and $badSha.state -eq 'Failed') 'JSON report identifies the failed phase'
+Assert ((Get-Content -LiteralPath $none.logPath -Raw) -like '*No validated unpacked*') 'no-installation failures leave a readable log'
+$badRoot = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ChromeUserDataRoot', 'not-an-absolute-path', '-WorkRoot', (Join-Path $root 'runs')) 1
+Assert ($badRoot.phase -eq 'DiscoverProfiles') 'failure before profile discovery completes still creates a report'
+Assert ((Get-Content -LiteralPath $badRoot.logPath -Raw) -like '*Only absolute local Windows paths*') 'early discovery failure is recorded in install.log'
+$blockedWork = Join-Path $root 'not-a-directory'; [IO.File]::WriteAllText($blockedWork, 'file blocks directory creation')
+$fallbackData = Join-Path $root 'fallback-localappdata'; [void][IO.Directory]::CreateDirectory($fallbackData)
+$previousLocalData = $env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA = $fallbackData
+    $fallback = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ChromeUserDataRoot', $emptyChrome, '-WorkRoot', $blockedWork) 1
+} finally { $env:LOCALAPPDATA = $previousLocalData }
+Assert ($fallback.diagnosticOnly -and $fallback.phase -eq 'Startup') 'unavailable work root produces diagnostic-only fallback report'
+Assert ($fallback.logPath.StartsWith($fallbackData, [StringComparison]::OrdinalIgnoreCase)) 'fallback log uses the invoking account local app data'
+Assert (!(Test-Path -LiteralPath (Join-Path $fallback.runPath 'package.zip'))) 'diagnostic fallback never downloads or deploys a package'
+$previousLocalData = $env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA = $blockedWork
+    $noLogs = @(& powershell.exe -NoLogo -NoProfile -File $updater -PackagePath $zip -Sha256 $sha -Version $releaseVersion -ChromeUserDataRoot $emptyChrome -WorkRoot $blockedWork 2>&1 | ForEach-Object { "$_" })
+    $noLogsExit = $LASTEXITCODE
+} finally { $env:LOCALAPPDATA = $previousLocalData }
+Assert ($noLogsExit -eq 1) 'no writable log directory returns failure'
+Assert (($noLogs -join ' ') -like '*TABMARKER_START*' -and ($noLogs -join ' ') -like '*TABMARKER_REPORT_UNAVAILABLE=*') 'console still reports startup and missing log location when all log paths fail'
+$junctionTarget = Old 'junction-destination'; $junction = Join-Path $root 'junction-extension'
+[void](New-Item -ItemType Junction -Path $junction -Target $junctionTarget)
+$linked = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ExtensionPath', $junction, '-ChromeUserDataRoot', $emptyChrome, '-WorkRoot', (Join-Path $root 'runs')) 1
+Assert (($linked.warnings -join ' ') -like '*Redirecting or unsupported reparse point*') 'redirecting directory junction is still refused'
+Assert ((Read (Join-Path $junctionTarget 'manifest.json')).version -eq '0.4.3') 'rejected junction destination stays unchanged'
 Write-Output "RMM_TESTS_PASSED=$passed"
 Write-Output "RMM_TEST_ROOT=$root"

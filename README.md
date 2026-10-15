@@ -1,5 +1,11 @@
 # TabMarker
 
+## 0.4.6: startup logging and desktop profile discovery fix
+
+The standalone RMM script now creates `install.log` and a starting JSON report before profile discovery, streams progress to the console, and records early failures. Protected Windows service profiles are skipped, inaccessible desktop profiles produce individual warnings, and failed work-directory setup gets a diagnostic-only fallback under the invoking account's local app data. Normal Microsoft Cloud Files folders such as OneDrive are recognized without allowing junctions or symbolic links. The on-device logging failure was reproduced using the published 0.4.4 launcher and the corrected discovery was validated in a dry run; no existing extension was changed by that diagnostic.
+
+Use the [0.4.6 release](https://github.com/AaronCampbellit/Tab-Marker/releases/tag/v0.4.6) for the corrected standalone script. Older launchers remain pinned to their original implementation and version.
+
 ## 0.4.5: visible version and synchronized release metadata
 
 The popup and Manage rules page show the currently running version in their bottom footer. The value comes from Chrome's loaded manifest, including while a newer deployment awaits reload. `package.json` is the source of truth for build and release versions. Use `npm version patch --no-git-tag-version`; its hook updates the manifest, deployment marker and lockfile automatically. Builds synchronize those values, and packaging verifies the source and built versions agree. With a matching local release tag, extension/build edits require a new version before building. Project rules are recorded in [AGENTS.md](AGENTS.md).

@@ -21,13 +21,29 @@ param(
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.IO.Compression.FileSystem
 $script:Results = New-Object 'System.Collections.Generic.List[object]'
 $script:Warnings = New-Object 'System.Collections.Generic.List[string]'
 $script:ChromeRoots = @()
 $script:RunPath = $null
 $script:ExitCode = 1
 $script:MaxBytes = 104857600
+$script:LogPath = $null
+$script:Phase = 'Startup'
+$script:LogWriteFailed = $false
+$script:DiagnosticOnly = $false
+Write-Output ('TABMARKER_START PowerShell=' + $PSVersionTable.PSVersion + ' PID=' + $PID)
+
+function Log([string]$Level, [string]$Message) {
+    $line = [DateTime]::UtcNow.ToString('o') + ' [' + $Level + '] [' + $script:Phase + '] ' + $Message
+    # Host output streams to the RMM console without polluting function return values.
+    Write-Host ('TABMARKER_PROGRESS ' + $line)
+    if ($script:LogPath) {
+        try { [IO.File]::AppendAllText($script:LogPath, $line + [Environment]::NewLine, [Text.Encoding]::UTF8) }
+        catch { $script:LogWriteFailed = $true; Write-Host ('TABMARKER_LOG_WRITE_FAILED=' + $_.Exception.Message) }
+    }
+}
+function Warn([string]$Message) { $script:Warnings.Add($Message); Log 'WARN' $Message }
+function Phase([string]$Name, [string]$Message) { $script:Phase = $Name; Log 'INFO' $Message }
 
 function Value($Object, [string]$Name) {
     if ($null -eq $Object) { return $null }
@@ -42,11 +58,24 @@ function FullPath([string]$Path) {
 function IsWithin([string]$Child, [string]$Parent) {
     return $Child.Equals($Parent, [StringComparison]::OrdinalIgnoreCase) -or $Child.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
 }
+function IsCloudPlaceholder($Item) {
+    # Only Microsoft's Cloud Files family is accepted. Junctions, symbolic links,
+    # mount points and unknown providers remain blocked. Querying never changes the reparse data.
+    $tool = Join-Path $env:SystemRoot 'System32\fsutil.exe'
+    if ($env:PROCESSOR_ARCHITEW6432) { $tool = Join-Path $env:SystemRoot 'Sysnative\fsutil.exe' }
+    $data = @(& $tool reparsepoint query $Item.FullName 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect reparse tag: $($Item.FullName)" }
+    $match = [regex]::Match(($data -join [Environment]::NewLine), '(?i)0x([0-9a-f]{8})')
+    if (!$match.Success) { throw "Could not parse reparse tag: $($Item.FullName)" }
+    $tag = [Convert]::ToUInt32($match.Groups[1].Value, 16)
+    return (($tag -band 0xFFFF0FFFL) -eq 0x9000001AL)
+}
 function NoLinks([string]$Path) {
     $cursor = $Path
     while ($cursor) {
         if (Test-Path -LiteralPath $cursor) {
-            if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse points are unsupported: $cursor" }
+            $item = Get-Item -LiteralPath $cursor -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and !(IsCloudPlaceholder $item)) { throw "Redirecting or unsupported reparse point: $cursor" }
         }
         $parent = Split-Path -Path $cursor -Parent
         if ($parent -eq $cursor) { break }
@@ -90,12 +119,52 @@ function WriteAtomic([string]$Path, [byte[]]$Bytes) {
 }
 function WriteJson([string]$Path, $Object) { WriteAtomic $Path ([Text.Encoding]::UTF8.GetBytes(($Object | ConvertTo-Json -Depth 30))) }
 function CopyAtomic([string]$Source, [string]$Destination) { WriteAtomic $Destination ([IO.File]::ReadAllBytes($Source)) }
+function SafeWorkRoot([string]$Root) {
+    $work = FullPath $Root; NoLinks $work
+    foreach ($chromeRoot in @($ChromeUserDataRoot) + @($script:ChromeRoots)) {
+        if ($chromeRoot -and $chromeRoot -match '^[A-Za-z]:[\\/]' -and (IsWithin $work (FullPath $chromeRoot))) { throw 'WorkRoot must be outside Chrome profile data.' }
+    }
+    if ($work -match '[\\/]Google[\\/]Chrome[^\\/]*[\\/]User Data([\\/]|$)') { throw 'WorkRoot must be outside Chrome profile data.' }
+    foreach ($extension in @($ExtensionPath)) {
+        if ($extension -and $extension -match '^[A-Za-z]:[\\/]' -and (IsWithin $work (FullPath $extension))) { throw 'WorkRoot must be outside the extension directory.' }
+    }
+    return $work
+}
+function InitializeRun([string]$Root) {
+    $work = SafeWorkRoot $Root
+    $script:RunPath = Join-Path $work ('runs\' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    NoLinks $script:RunPath
+    [void][IO.Directory]::CreateDirectory($script:RunPath)
+    NoLinks $script:RunPath
+    $script:LogPath = Join-Path $script:RunPath 'install.log'
+    [IO.File]::WriteAllText($script:LogPath, '', [Text.Encoding]::UTF8)
+    Write-Host ('TABMARKER_LOG=' + $script:LogPath)
+    Log 'INFO' ('Script started. PowerShell=' + $PSVersionTable.PSVersion + '; PID=' + $PID + '; DryRun=' + [bool]$DryRun)
+    # Protect logs and backups before collecting user profile details.
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $account = [Security.Principal.WindowsIdentity]::GetCurrent()
+    foreach ($sid in (@('S-1-5-18', 'S-1-5-32-544', $account.User.Value) | Select-Object -Unique)) {
+        $identity = New-Object Security.Principal.SecurityIdentifier($sid)
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        [void]$acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $script:RunPath -AclObject $acl
+    Log 'INFO' ('Account=' + $account.Name + '; Process64Bit=' + [Environment]::Is64BitProcess)
+    WriteJson (Join-Path $script:RunPath 'report.json') ([ordered]@{ schemaVersion = 1; product = 'TabMarker'; state = 'Running'; phase = $script:Phase; runPath = $script:RunPath; logPath = $script:LogPath; startedAtUtc = [DateTime]::UtcNow.ToString('o'); dryRun = [bool]$DryRun })
+}
 function Files([string]$Root) {
     NoLinks $Root
     $count = 0; $bytes = 0L
-    foreach ($item in (Get-ChildItem -LiteralPath $Root -Recurse -Force)) {
-        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse point inside extension: $($item.FullName)" }
-        if (!$item.PSIsContainer -and $item.Name -ne '.tabmarker-rmm.lock') {
+    $pending = New-Object 'System.Collections.Generic.Stack[string]'
+    $pending.Push($Root); $directories = 0
+    while ($pending.Count -gt 0) {
+        $folder = $pending.Pop(); NoLinks $folder; $directories++
+        if ($directories -gt 2500) { throw 'Extension directory has too many subdirectories.' }
+        foreach ($item in (Get-ChildItem -LiteralPath $folder -Force)) {
+            NoLinks $item.FullName
+            if ($item.PSIsContainer) { $pending.Push($item.FullName); continue }
+            if ($item.Name -eq '.tabmarker-rmm.lock') { continue }
             $count++; $bytes += $item.Length
             if ($count -gt 2500 -or $bytes -gt $script:MaxBytes) { throw 'Extension directory exceeds the 2500-file / 100 MiB safety limit.' }
             $relative = $item.FullName.Substring($Root.Length + 1)
@@ -156,28 +225,45 @@ function SafeTarget([string]$Path) {
 function DiscoverRoots {
     if ($ChromeUserDataRoot) { return @($ChromeUserDataRoot | ForEach-Object { FullPath $_ } | Select-Object -Unique) }
     $users = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($entry in (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*')) {
-        $profile = [Environment]::ExpandEnvironmentVariables([string](Value $entry 'ProfileImagePath'))
-        if ($profile -and (Test-Path -LiteralPath $profile -PathType Container)) { $users.Add($profile) }
+    $keys = @()
+    try { $keys = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction Stop) }
+    catch { Warn ('Cannot enumerate Windows profiles: ' + $_.Exception.Message) }
+    foreach ($key in $keys) {
+        # These are Windows service accounts, not desktop Chrome users. Their
+        # protected directories must never abort an ordinary user deployment.
+        if ($key.PSChildName -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')) { continue }
+        try {
+            $entry = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
+            $profile = [Environment]::ExpandEnvironmentVariables([string](Value $entry 'ProfileImagePath'))
+            if ($profile -and (Test-Path -LiteralPath $profile -PathType Container -ErrorAction Stop)) { $users.Add($profile) }
+        } catch { Warn ("Cannot inspect Windows profile $($key.PSChildName): " + $_.Exception.Message) }
+    }
+    # Current-user discovery remains useful when another profile is inaccessible.
+    if ($env:USERPROFILE -and $env:USERPROFILE -notmatch '[\\/]Windows[\\/](System32[\\/]config[\\/]systemprofile|ServiceProfiles[\\/])') {
+        $users.Add($env:USERPROFILE)
     }
     foreach ($user in @($users | Select-Object -Unique)) {
         foreach ($channel in @('Chrome', 'Chrome Beta', 'Chrome Dev', 'Chrome SxS')) {
             $root = Join-Path $user "AppData\Local\Google\$channel\User Data"
-            if (Test-Path -LiteralPath $root -PathType Container) { FullPath $root }
+            try { if (Test-Path -LiteralPath $root -PathType Container -ErrorAction Stop) { FullPath $root } }
+            catch { Warn ("Cannot inspect Chrome data root $root : " + $_.Exception.Message) }
         }
     }
 }
 function DiscoverTargets {
     $targets = @{}
     foreach ($root in $script:ChromeRoots) {
-        if (!(Test-Path -LiteralPath $root -PathType Container)) { $script:Warnings.Add("Chrome data root missing: $root"); continue }
-        NoLinks $root
-        foreach ($profile in (Get-ChildItem -LiteralPath $root -Directory -Force)) {
+        try {
+            if (!(Test-Path -LiteralPath $root -PathType Container)) { Warn "Chrome data root missing: $root"; continue }
+            NoLinks $root
+            $profiles = @(Get-ChildItem -LiteralPath $root -Directory -Force)
+        } catch { Warn ("Cannot list Chrome profiles in $root : " + $_.Exception.Message); continue }
+        foreach ($profile in $profiles) {
             if ($profile.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
             foreach ($file in @('Secure Preferences', 'Preferences')) {
                 $prefs = Join-Path $profile.FullName $file
-                if (!(Test-Path -LiteralPath $prefs -PathType Leaf)) { continue }
                 try {
+                    if (!(Test-Path -LiteralPath $prefs -PathType Leaf)) { continue }
                     NoLinks $prefs
                     $settings = Value (Value (ReadJson $prefs) 'extensions') 'settings'
                     if ($null -eq $settings) { continue }
@@ -200,11 +286,11 @@ function DiscoverTargets {
                             $targets[$candidate].profiles = @($targets[$candidate].profiles + $profile.FullName | Select-Object -Unique)
                             $targets[$candidate].extensionIds = @($targets[$candidate].extensionIds + $record.Name | Select-Object -Unique)
                         } catch {
-                            $script:Warnings.Add("Skipped unpacked record $($record.Name) in $prefs : $($_.Exception.Message)")
+                            Warn "Skipped unpacked record $($record.Name) in $prefs : $($_.Exception.Message)"
                             if ($isTabMarker) { $script:Results.Add([pscustomobject]@{ target = $path; status = 'Failed'; error = $_.Exception.Message; reloadRequired = $false; activeVersionVerified = $false }) }
                         }
                     }
-                } catch { $script:Warnings.Add("Could not read $prefs : $($_.Exception.Message)") }
+                } catch { Warn "Could not read $prefs : $($_.Exception.Message)" }
             }
         }
     }
@@ -317,6 +403,7 @@ function Deploy($Target, [string]$Stage, $NewManifest) {
     $row = [ordered]@{ target = $path; profiles = $Target.profiles; extensionIds = $Target.extensionIds; oldVersion = $current.version; newVersion = $NewManifest.version; status = 'Failed'; reloadRequired = $false; activeVersionVerified = $false; receipt = $null; error = $null }
     $lock = $null; $receipt = $null; $backupRoot = $null; $changed = $false
     try {
+        Log 'INFO' ("Target $path : $($current.version) -> $($NewManifest.version)")
         if ([string](Value $current 'key') -cne [string](Value $NewManifest 'key')) { throw 'Extension key changed. Refusing an update that could change extension identity.' }
         $comparison = (VersionNumber $NewManifest.version).CompareTo((VersionNumber $current.version))
         if ($comparison -lt 0) { throw 'Downgrade refused. Use a verified rollback receipt instead.' }
@@ -332,6 +419,7 @@ function Deploy($Target, [string]$Stage, $NewManifest) {
         # Revalidate after acquiring the per-folder lock.
         $again = Manifest $path
         if ($again.version -cne $current.version) { throw 'Extension changed during discovery. Run again.' }
+        Log 'INFO' ("Capturing verified backup for $path")
         $original = @(Files $path)
         $oldNames = @{}; foreach ($file in $original) { $oldNames[$file.relative] = $true }
         $added = @($packageFiles | Where-Object { !$oldNames.ContainsKey($_.relative) } | ForEach-Object { $_.relative })
@@ -346,6 +434,7 @@ function Deploy($Target, [string]$Stage, $NewManifest) {
         $row.receipt = Join-Path $backupRoot 'receipt.json'; WriteJson $row.receipt $receipt
         $changed = $true
         Marker $path 'applying' $NewManifest.version
+        Log 'INFO' ("Backup ready. Deploying files to $path")
         # Hashed assets precede the HTML/entry points that reference them.
         foreach ($file in ($packageFiles | Sort-Object { if ($_.relative -match '^assets[\\/]') { 0 } elseif ($_.relative -match '\.(html|js)$') { 1 } else { 0 } })) {
             if ($file.relative -in @('manifest.json', 'update-status.json')) { continue }
@@ -360,36 +449,27 @@ function Deploy($Target, [string]$Stage, $NewManifest) {
         if ((Hash (ChildPath $path 'manifest.json')) -ne (Hash (ChildPath $Stage 'manifest.json'))) { throw 'Deployed manifest checksum mismatch.' }
         Marker $path 'ready' $NewManifest.version
         $row.status = 'Updated'; $row.reloadRequired = $true
+        Log 'INFO' ("Files updated to $($NewManifest.version). Chrome reload required: $path")
     } catch {
         $row.error = $_.Exception.Message
+        Log 'ERROR' ("Target $path failed: " + $row.error)
         if ($changed -and $null -ne $receipt) {
-            try { Restore $receipt $backupRoot; $row.status = 'FailedRolledBack'; $row.reloadRequired = $true }
-            catch { $row.status = 'RollbackFailed'; $row.error += ' | Rollback failed: ' + $_.Exception.Message }
+            try { Log 'WARN' ("Restoring backup for $path"); Restore $receipt $backupRoot; $row.status = 'FailedRolledBack'; $row.reloadRequired = $true; Log 'INFO' 'Automatic rollback completed.' }
+            catch { $row.status = 'RollbackFailed'; $row.error += ' | Rollback failed: ' + $_.Exception.Message; Log 'ERROR' $row.error }
         }
     } finally { if ($null -ne $lock) { $lock.Dispose() } }
     return [pscustomobject]$row
 }
 
 try {
+    InitializeRun $WorkRoot
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    Phase 'DiscoverProfiles' 'Discovering accessible desktop Chrome profiles.'
     $script:ChromeRoots = @(DiscoverRoots)
-    $work = FullPath $WorkRoot; NoLinks $work
-    foreach ($root in $script:ChromeRoots) { if (IsWithin $work $root) { throw 'WorkRoot must be outside Chrome profile data.' } }
-    if ($work -match '[\\/]Google[\\/]Chrome[^\\/]*[\\/]User Data([\\/]|$)') { throw 'WorkRoot must be outside Chrome profile data.' }
-    $script:RunPath = Join-Path $work ('runs\' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-    NoLinks $script:RunPath
-    [void][IO.Directory]::CreateDirectory($script:RunPath)
-    NoLinks $script:RunPath
-    # Backups may contain user-created files. Restrict each run to admins, SYSTEM, and the invoking identity.
-    $acl = New-Object Security.AccessControl.DirectorySecurity
-    $acl.SetAccessRuleProtection($true, $false)
-    $sids = @('S-1-5-18', 'S-1-5-32-544', [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) | Select-Object -Unique
-    foreach ($sid in $sids) {
-        $identity = New-Object Security.Principal.SecurityIdentifier($sid)
-        $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-        [void]$acl.AddAccessRule($rule)
-    }
-    Set-Acl -LiteralPath $script:RunPath -AclObject $acl
+    [void](SafeWorkRoot $WorkRoot)
+    Log 'INFO' ('Chrome data roots found: ' + $script:ChromeRoots.Count)
     if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
+        Phase 'Rollback' 'Validating rollback receipt and backup files.'
         $receiptPath = FullPath $RollbackReceipt; NoLinks $receiptPath
         $receipt = ReadJson $receiptPath
         $target = SafeTarget ([string](Value $receipt 'target'))
@@ -406,12 +486,14 @@ try {
         [void](VersionNumber $Version)
         if ((!$PackageUrl -and !$PackagePath) -or ($PackageUrl -and $PackagePath)) { throw 'Provide exactly one of -PackageUrl or -PackagePath.' }
         $zip = Join-Path $script:RunPath 'package.zip'
+        Phase 'AcquirePackage' 'Acquiring the pinned extension package.'
         if ($PackageUrl) { Download $PackageUrl $zip }
         else {
             $source = FullPath $PackagePath; NoLinks $source
             if ((Get-Item -LiteralPath $source).Length -gt $script:MaxBytes) { throw 'ZIP exceeds 100 MiB.' }
             Copy-Item -LiteralPath $source -Destination $zip
         }
+        Phase 'ValidatePackage' 'Checking package size, SHA-256, version and extension resources.'
         if ((Get-Item -LiteralPath $zip).Length -gt $script:MaxBytes) { throw 'ZIP exceeds 100 MiB.' }
         if ((Hash $zip) -ne $Sha256.ToLowerInvariant()) { throw 'Package SHA-256 mismatch. No extension files changed.' }
         $stage = Join-Path $script:RunPath 'staging'; ExtractPackage $zip $stage
@@ -422,8 +504,11 @@ try {
         foreach ($reserved in @('.git', 'src', 'node_modules', 'Preferences', 'Secure Preferences', 'Local State', '.tabmarker-rmm.lock')) {
             if (Test-Path -LiteralPath (Join-Path $stage $reserved)) { throw "Unexpected package content: $reserved" }
         }
+        Phase 'DiscoverTargets' 'Package verified. Locating existing unpacked TabMarker installations.'
         $targets = @(DiscoverTargets)
+        Log 'INFO' ('Validated extension folders found: ' + $targets.Count)
         if ($targets.Count -eq 0) { if ($script:Results.Count -eq 0) { $script:ExitCode = 2 }; throw 'No validated unpacked TabMarker installations found. Use -ChromeUserDataRoot for custom Chrome data locations or -ExtensionPath for a known built folder.' }
+        Phase 'Deploy' 'Processing validated extension folders.'
         foreach ($target in $targets) {
             try { $script:Results.Add((Deploy $target $stage $new)) }
             catch { $script:Results.Add([pscustomobject]@{ target = $target.path; status = 'Failed'; error = $_.Exception.Message; reloadRequired = $false; activeVersionVerified = $false }) }
@@ -432,15 +517,37 @@ try {
     $failed = @($script:Results | Where-Object { $_.status -in @('Failed', 'FailedRolledBack', 'RollbackFailed') })
     if ($failed.Count -eq 0) { $script:ExitCode = 0 }
 } catch {
-    $script:Warnings.Add($_.Exception.Message)
+    $failure = $_.Exception.Message
+    $failurePhase = $script:Phase
+    if (!$script:LogPath) {
+        $script:DiagnosticOnly = $true
+        try {
+            # Diagnostics only: if the requested work directory is unavailable,
+            # record the failure in the invoking account's local app data. No deployment follows.
+            $localData = $env:LOCALAPPDATA
+            if (!$localData) { $localData = [Environment]::GetFolderPath('LocalApplicationData') }
+            InitializeRun (Join-Path $localData 'TabMarkerRMM\diagnostics')
+            Log 'WARN' ('Diagnostic fallback only. Requested work root: ' + $WorkRoot)
+        } catch { Write-Host ('TABMARKER_LOG_INIT_FAILED=' + $_.Exception.Message) }
+    }
+    $script:Phase = $failurePhase
+    Warn $failure
 } finally {
-    $report = [ordered]@{ schemaVersion = 1; product = 'TabMarker'; runPath = $script:RunPath; completedAtUtc = [DateTime]::UtcNow.ToString('o'); dryRun = [bool]$DryRun; exitCode = $script:ExitCode; results = @($script:Results.ToArray()); warnings = @($script:Warnings.ToArray()) }
-    if ($script:RunPath -and (Test-Path -LiteralPath $script:RunPath -PathType Container)) {
-        try { WriteJson (Join-Path $script:RunPath 'report.json') $report } catch { $script:ExitCode = 1; Write-Output ('REPORT_WRITE_FAILED=' + $_.Exception.Message) }
+    foreach ($row in $script:Results) { Log 'INFO' ('Target result: ' + $row.status + ' ' + $row.target) }
+    Log 'INFO' ('Finalizing run. Deployment exit code=' + $script:ExitCode)
+    if ($script:LogWriteFailed) { $script:ExitCode = 1; $script:Warnings.Add('One or more install.log writes failed. Review console output.') }
+    $state = 'Failed'; if ($script:ExitCode -eq 0) { $state = 'Completed' }
+    $report = [ordered]@{ schemaVersion = 1; product = 'TabMarker'; state = $state; phase = $script:Phase; runPath = $script:RunPath; logPath = $script:LogPath; diagnosticOnly = $script:DiagnosticOnly; completedAtUtc = [DateTime]::UtcNow.ToString('o'); dryRun = [bool]$DryRun; exitCode = $script:ExitCode; results = @($script:Results.ToArray()); warnings = @($script:Warnings.ToArray()) }
+    $reportSaved = $false
+    if ($script:RunPath) {
+        try {
+            if (Test-Path -LiteralPath $script:RunPath -PathType Container) { WriteJson (Join-Path $script:RunPath 'report.json') $report; $reportSaved = $true }
+        } catch { $script:ExitCode = 1; Log 'ERROR' ('REPORT_WRITE_FAILED=' + $_.Exception.Message); Write-Output ('REPORT_WRITE_FAILED=' + $_.Exception.Message) }
     }
     foreach ($row in $script:Results) { Write-Output ('TABMARKER_TARGET ' + ($row | ConvertTo-Json -Depth 8 -Compress)) }
     foreach ($warning in $script:Warnings) { Write-Output ('TABMARKER_WARNING ' + $warning) }
-    if ($script:RunPath) { Write-Output ('TABMARKER_REPORT=' + (Join-Path $script:RunPath 'report.json')) }
+    if ($reportSaved) { Write-Output ('TABMARKER_REPORT=' + (Join-Path $script:RunPath 'report.json')) }
+    else { Write-Output 'TABMARKER_REPORT_UNAVAILABLE=No writable report location. See the console error and TABMARKER_LOG_INIT_FAILED.' }
     Write-Output ('TABMARKER_EXIT_CODE=' + $script:ExitCode)
 }
 exit $script:ExitCode

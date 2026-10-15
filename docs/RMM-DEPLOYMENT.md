@@ -27,12 +27,12 @@ The first rollout to a pre-0.4.4 version adds this feature. Reopen the popup to 
 
 ## Discovery and protection of user data
 
-- Reads Windows ProfileList to locate standard Chrome Stable, Beta, Dev, and Canary user-data roots for local users. Reads `Secure Preferences` and `Preferences` in immediate profile directories, including custom-named profiles.
+- Creates logging before profile discovery. Reads Windows ProfileList to locate standard Chrome Stable, Beta, Dev, and Canary user-data roots for local users. Skips Windows service accounts; logs inaccessible user profiles individually and continues with accessible ones. Reads `Secure Preferences` and `Preferences` in immediate profile directories, including custom-named profiles.
 - Uses unpacked records (`location: 4`) and their absolute folder paths. Unpacked records commonly have no cached manifest, so it reads the manifest from disk and verifies TabMarker's name, MV3 format, entry points, resources, and HTML asset links. Packed/store installations are excluded.
 - Deduplicates a folder shared by several Chrome profiles. Updates that folder once and reports all discovered profiles/extension IDs.
 - Custom `--user-data-dir` locations require `-ChromeUserDataRoot`. A known built folder can be supplied with `-ExtensionPath`; this explicit option does not prove it is loaded in a browser. These array parameters work naturally through the PowerShell call operator; for command-line launch, use one root per job or a small PowerShell wrapper for arrays.
 - Leaves Chrome preferences, extension storage, IndexedDB and saved rules untouched. Keeps the existing extension folder path and rejects changes to a manifest signing key. Does not uninstall/reinstall or move the extension.
-- Rejects source checkouts, broad folders, folders inside known Chrome data roots, reparse points/junctions/cloud placeholder files, and packages or extension trees exceeding 100 MiB / 2,500 files. Missing or inaccessible records are reported; discovery does not scan the entire disk. Relocated Windows LocalAppData/custom data locations need an explicit root.
+- Rejects source checkouts, broad folders, folders inside known Chrome data roots, redirecting junctions/symbolic links, unknown reparse tags, and packages or extension trees exceeding 100 MiB / 2,500 files. Microsoft's Cloud Files reparse-tag family is permitted after a read-only `fsutil reparsepoint query`; this supports normal OneDrive folders while retaining redirect protection. Files must be accessible to the executing account and sync provider. Cloud writes still need an endpoint pilot; no hydration, account impersonation, or reparse modification is forced. Missing/inaccessible records are reported; discovery does not scan the entire disk. Relocated Windows LocalAppData/custom data locations need an explicit root. See [Microsoft's tag definitions](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/c8e77b37-3909-4fe6-a4ea-2b9d423b1ee4).
 
 ## Validation, backup, and rollback
 
@@ -54,10 +54,17 @@ Remove `-DryRun` to restore. Backup hashes are checked before writing. The recei
 
 ## RMM results
 
-Default run directory: `C:\ProgramData\TabMarkerRMM\runs\<timestamp-id>`. Each run folder is restricted to SYSTEM, administrators, and the invoking identity. It contains staging, the downloaded ZIP, backup receipts/files, and `report.json`. `-WorkRoot` selects another location outside Chrome profiles; `-DryRun` still writes its staging/report there but never changes extension files. Retain backups for your rollback window, then remove selected completed run folders through your normal RMM retention process. There is no automatic pruning.
+Default run directory: `C:\ProgramData\TabMarkerRMM\runs\<timestamp-id>`. Each run folder is restricted to SYSTEM, administrators, and the invoking identity. **`install.log` is created at startup, before profile discovery or downloading.** It records timestamps, account/process context, phases, warnings, target results and errors. A starting `report.json` records `state: Running`; completion updates it with status, phase, log path, results and exit code. The folder also contains staging, the downloaded ZIP and backup receipts/files. `-WorkRoot` selects another location outside Chrome profiles; `-DryRun` writes its log/staging/report there but never changes extension files.
+
+If the requested work directory cannot be initialized, the script attempts a protected **diagnostic-only** log/report under `%LOCALAPPDATA%\TabMarkerRMM\diagnostics\runs\<timestamp-id>`. It then exits with failure; no download or deployment follows that fallback. Both locations must still be writable. Logs cannot be created if PowerShell never executes the script (for example a syntax, parameter binding, execution-policy or endpoint-control block before startup); inspect the invoking console/RMM job error in that case. No security settings are changed.
+
+Retain backups for your rollback window, then remove selected completed run folders through your normal RMM retention process. There is no automatic pruning. For a manual run, open PowerShell and launch the downloaded script with `-DryRun` so its startup log path and any error remain visible. For all users, use your approved elevated/LocalSystem context; a normal user may see warnings for other users' profiles.
 
 Console lines are easy to parse:
 
+- `TABMARKER_START ...`: emitted as execution begins.
+- `TABMARKER_LOG=...`: the persistent text log path, emitted as soon as it exists.
+- `TABMARKER_PROGRESS ...`: live timestamped phase/progress messages, including warnings/errors; these are also appended to `install.log`.
 - `TABMARKER_TARGET {json}`: target path, old/new **file** versions, profiles/IDs, status, receipt and error.
 - `TABMARKER_WARNING ...`: discovery, validation or transport issues; review even when the exit code is 0.
 - `TABMARKER_REPORT=...`: full JSON report path.
