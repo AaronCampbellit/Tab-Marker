@@ -1,5 +1,11 @@
 # TabMarker
 
+## 0.4.9: download, extract, double-click
+
+**Manage rules → Updates → Install helper** now downloads `TabMarker-Helper-Setup.zip` containing a batch launcher and the personalized PowerShell installer. Choose **Extract All**, double-click **Install TabMarker Helper.cmd**, then return to Settings; connection is checked automatically. No PowerShell command to copy. Binary ZIP download handling and fixed archive filenames fix the earlier `.ps1` download appearing as `.txt`. The launcher follows existing policy and keeps its window open for feedback. See [helper setup](docs/HELPER-UPDATES.md).
+
+Use the [0.4.9 release](https://github.com/AaronCampbellit/Tab-Marker/releases/tag/v0.4.9) to get the simpler setup flow.
+
 ## 0.4.8: GitHub updates and bundled Windows helper setup
 
 Open **Manage rules → Updates** to check published GitHub releases. **Install helper** downloads a standalone installer personalized for the current extension ID. Run it once as your usual Windows user, then click **Check connection**. Future releases can be installed from Settings and activated with the existing reload button. Chrome cannot launch the initial installer itself. The helper verifies each release and runs the bundled updater only for its registered extension ID. See [helper setup, requirements and validation limits](docs/HELPER-UPDATES.md).

@@ -21,6 +21,7 @@ const payload = Buffer.from(JSON.stringify({ version, files })).toString('base64
 const installer = readFileSync('scripts/helper/Install-TabMarkerHelper.template.ps1', 'utf8').replace('__TABMARKER_HELPER_PAYLOAD__', payload);
 mkdirSync('dist/helper', { recursive: true });
 writeFileSync('dist/helper/Install-TabMarkerHelper.ps1', installer);
+writeFileSync('dist/helper/Install TabMarker Helper.cmd', readFileSync('scripts/helper/Install TabMarker Helper.cmd', 'utf8').replace(/\r?\n/g, '\r\n'));
 // Payload files are also available to the isolated native-host test harness.
 for (const [name, path] of Object.entries(paths)) copyFileSync(path, resolve(build, name));
 writeFileSync(resolve(build, 'payload.json'), JSON.stringify({ version, files }));

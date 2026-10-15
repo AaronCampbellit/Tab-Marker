@@ -15,6 +15,7 @@ $manifest = Get-Content -LiteralPath (Join-Path $dist 'manifest.json') -Raw | Co
 $marker = Get-Content -LiteralPath (Join-Path $dist 'update-status.json') -Raw | ConvertFrom-Json
 if ($manifest.name -cne 'TabMarker' -or $manifest.version -notmatch '^\d+(\.\d+){0,3}$' -or $manifest.version -cne $source.version -or $marker.version -cne $manifest.version -or $marker.state -cne 'ready') { throw 'Build, source and deployment metadata do not match. Run npm run build first.' }
 if (!(Test-Path -LiteralPath (Join-Path $dist 'helper\Install-TabMarkerHelper.ps1') -PathType Leaf)) { throw 'The bundled helper installer is missing. Build on Windows before packaging.' }
+if (!(Test-Path -LiteralPath (Join-Path $dist 'helper\Install TabMarker Helper.cmd') -PathType Leaf)) { throw 'The helper batch launcher is missing. Rebuild before packaging.' }
 $destination = [IO.Path]::GetFullPath($OutputDirectory)
 if ($destination.StartsWith($dist + '\', [StringComparison]::OrdinalIgnoreCase) -or $destination -eq $dist) { throw 'OutputDirectory must be outside dist.' }
 [void][IO.Directory]::CreateDirectory($destination)

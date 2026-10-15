@@ -12,6 +12,7 @@
 ## Windows helper boundaries
 
 - Bundle setup through `scripts/build-helper.mjs`. Initial setup is an explicit user-run installer; never auto-execute a download or weaken execution policy/endpoint controls.
+- Settings must download a binary ZIP containing the exact `.cmd` launcher and personalized `.ps1` companion filenames. Verify real extraction/launcher behavior and avoid text MIME handling that can rename scripts to `.txt`.
 - Keep native actions limited to status, check and update. Accept no caller-selected commands, URLs, repositories or target paths. Verify caller ID against registration and keep helper updates scoped with `OnlyExtensionId`.
 - Keep helper registration per-user and preserve Chrome profile files/settings. Do not add an elevation mechanism or background service without explicit scope approval.
 - Verify GitHub release metadata/asset digests and package hash/version before applying files. Keep automatic rollback and log-only run cleanup, retaining recovery backups when rollback fails.

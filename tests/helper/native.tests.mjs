@@ -9,6 +9,14 @@ const root = path.resolve('work/helper-tests', randomUUID()); fs.mkdirSync(root,
 const home = path.join(root, 'helper'), chrome = path.join(root, 'ChromeData'), local = path.join(root, 'local-é');
 fs.mkdirSync(home); fs.mkdirSync(local); fs.mkdirSync(path.join(chrome, 'Default'), { recursive: true });
 for (const name of ['TabMarkerHelper.exe', 'Helper.Common.ps1', 'Invoke-TabMarkerHelper.ps1', 'Update-TabMarker.ps1']) fs.copyFileSync(path.join('work/helper-build', name), path.join(home, name));
+let hostVersion = version;
+const olderInstallerIndex = process.argv.indexOf('--installed-helper');
+if (olderInstallerIndex >= 0) {
+  const installer = fs.readFileSync(process.argv[olderInstallerIndex + 1], 'utf8');
+  const match = installer.match(/FromBase64String\('([A-Za-z0-9+/=]+)'\)/); assert.ok(match);
+  const payload = JSON.parse(Buffer.from(match[1], 'base64')); hostVersion = payload.version;
+  for (const name of ['TabMarkerHelper.exe', 'Helper.Common.ps1', 'Invoke-TabMarkerHelper.ps1', 'Update-TabMarker.ps1']) fs.writeFileSync(path.join(home, name), Buffer.from(payload.files[name].content, 'base64'));
+}
 const id = 'a'.repeat(32), otherId = 'b'.repeat(32), origin = `chrome-extension://${id}/`;
 const seedVersion = process.argv.includes('--deploy-previous') ? '0.4.6' : '0.4.7';
 const target = path.join(root, 'target-é'), other = path.join(root, 'other-target');
@@ -20,7 +28,7 @@ const prefs = path.join(chrome, 'Default', 'Secure Preferences');
 fs.writeFileSync(prefs, JSON.stringify({ extensions: { settings: { [id]: { location: 4, path: target }, [otherId]: { location: 4, path: other } } } }));
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const prefsHash = hash(prefs);
-const config = { product: 'TabMarker', protocol: 1, helperVersion: version, updaterSha256: hash(path.join(home, 'Update-TabMarker.ps1')), registrations: [{ id, roots: [chrome] }] };
+const config = { product: 'TabMarker', protocol: 1, helperVersion: hostVersion, updaterSha256: hash(path.join(home, 'Update-TabMarker.ps1')), registrations: [{ id, roots: [chrome] }] };
 const writeConfig = () => fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify(config)); writeConfig();
 const checks = [];
 function pass(name, fn) { fn(); checks.push(name); console.log(`PASS ${name}`); }
@@ -33,7 +41,7 @@ function native(request, caller = origin, raw) {
   const final = messages.filter(m => m.kind === 'complete'); assert.equal(final.length, 1, result.stderr.toString());
   return { ...final[0].result, messages, exitCode: result.status };
 }
-pass('real compiled native host exchanges length-prefixed JSON status', () => { const result = native({ action: 'status' }); assert.equal(result.ok, true); assert.equal(result.protocol, 1); assert.equal(result.helperVersion, version); });
+pass('real compiled native host exchanges length-prefixed JSON status', () => { const result = native({ action: 'status' }); assert.equal(result.ok, true); assert.equal(result.protocol, 1); assert.equal(result.helperVersion, hostVersion); });
 pass('native host rejects unregistered extension IDs', () => { assert.equal(native({ action: 'status' }, `chrome-extension://${otherId}/`).ok, false); });
 pass('native host rejects website origins', () => { assert.equal(native({ action: 'status' }, 'https://example.com/').ok, false); });
 pass('native host rejects arbitrary commands', () => { assert.equal(native({ action: 'powershell', command: 'Get-Process' }).ok, false); });
@@ -65,7 +73,7 @@ assert.notEqual(sandboxSource, template.replace('__TABMARKER_EXTENSION_ID__', id
 const installedHome = path.join(local, 'TabMarker', 'Helper');
 try {
   pass('setup installs its necessary files and isolated registry registration', () => { const result = setup(sandboxSetup, [], false); assert.equal(result.status, 0, result.stdout + result.stderr); assert.ok(fs.existsSync(path.join(installedHome, 'TabMarkerHelper.exe'))); assert.ok(!fs.readdirSync(installedHome).some(name => name.startsWith('setup-'))); });
-  pass('reinstall atomically replaces existing helper files', () => { const result = setup(sandboxSetup, [], false); assert.equal(result.status, 0, result.stdout + result.stderr); assert.equal(hash(path.join(installedHome, 'TabMarkerHelper.exe')), hash(path.join(home, 'TabMarkerHelper.exe'))); });
+  pass('reinstall atomically replaces existing helper files', () => { const result = setup(sandboxSetup, [], false); assert.equal(result.status, 0, result.stdout + result.stderr); assert.equal(hash(path.join(installedHome, 'TabMarkerHelper.exe')), hash(path.join('work/helper-build', 'TabMarkerHelper.exe'))); });
   pass('setup authorizes a second validated extension ID while retaining the first', () => { const result = setup(sandboxSetup, ['-ExtensionId', otherId], false); assert.equal(result.status, 0, result.stdout + result.stderr); const manifest = JSON.parse(fs.readFileSync(path.join(installedHome, 'host.json'), 'utf8').replace(/^\uFEFF/, '')); assert.deepEqual(manifest.allowed_origins.sort(), [origin, `chrome-extension://${otherId}/`].sort()); });
 } finally {
   const uninstaller = path.join(installedHome, 'Uninstall-TabMarkerHelper.ps1');
@@ -95,5 +103,5 @@ if (process.argv.includes('--network')) {
   }
 }
 pass('native/helper/setup checks leave Chrome preference bytes unchanged', () => assert.equal(hash(prefs), prefsHash));
-fs.writeFileSync(path.join(root, 'validation.json'), JSON.stringify({ passed: true, checks, version, network: process.argv.includes('--network'), deployed: process.argv.includes('--deploy') }, null, 2));
+fs.writeFileSync(path.join(root, 'validation.json'), JSON.stringify({ passed: true, checks, version, hostVersion, network: process.argv.includes('--network'), deployed: process.argv.includes('--deploy') }, null, 2));
 console.log(`HELPER_CHECKS_PASSED=${checks.length}`); console.log(`HELPER_TEST_ROOT=${root}`);

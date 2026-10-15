@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
-import { callHelper, compareVersions, latestRelease, personalizeInstaller, type GitHubRelease, type HelperResult } from '../shared/github-updates';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { callHelper, compareVersions, latestRelease, type GitHubRelease, type HelperResult } from '../shared/github-updates';
 import { readDeployment } from '../shared/deployment';
+import { helperSetupArchive, HELPER_SETUP_NAME } from '../shared/helper-setup';
 
-const SETUP_COMMAND = 'powershell.exe -NoProfile -File "$env:USERPROFILE\\Downloads\\Install-TabMarkerHelper.ps1"';
 export function GitHubUpdates({ busy, hasUnsavedChanges }: { busy: boolean; hasUnsavedChanges: () => boolean }) {
   const [windows, setWindows] = useState<boolean | null>(null);
   const [helper, setHelper] = useState<HelperResult | null>(null);
@@ -13,16 +13,19 @@ export function GitHubUpdates({ busy, hasUnsavedChanges }: { busy: boolean; hasU
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [logPath, setLogPath] = useState('');
+  const connectionSequence = useRef(0);
   const running = chrome.runtime.getManifest().version;
   const connected = helper?.ok && helper.protocol === 1;
   const available = release && compareVersions(release.version, running) > 0;
   const checkConnection = useCallback(async () => {
+    const sequence = ++connectionSequence.current;
     setConnection('Checking helper connection…');
     try {
       const result = await callHelper('status');
+      if (sequence !== connectionSequence.current) return;
       setHelper(result);
       setConnection(result.ok && result.protocol === 1 ? `Helper connected · v${result.helperVersion}` : result.error || 'Reinstall the helper to connect this TabMarker installation.');
-    } catch (cause) { setHelper(null); setConnection(`Helper not connected. ${cause instanceof Error ? cause.message : 'Install it below, then check again.'}`); }
+    } catch (cause) { if (sequence !== connectionSequence.current) return; setHelper(null); const detail = cause instanceof Error ? cause.message : ''; setConnection(/host not found/i.test(detail) ? 'Helper not connected yet.' : `Helper not connected. ${detail || 'Try Check connection again.'}`); }
   }, []);
   const checkRelease = useCallback(async (force = false) => {
     try { const next = await latestRelease(force); setRelease(next.release); setCheckedAt(next.checkedAt); }
@@ -30,7 +33,11 @@ export function GitHubUpdates({ busy, hasUnsavedChanges }: { busy: boolean; hasU
   }, []);
   useEffect(() => {
     void checkRelease();
-    void chrome.runtime.getPlatformInfo().then(platform => { setWindows(platform.os === 'win'); if (platform.os === 'win') void checkConnection(); else setConnection('The update helper is available for Windows.'); });
+    let active = true, isWindows = false;
+    void chrome.runtime.getPlatformInfo().then(platform => { if (!active) return; isWindows = platform.os === 'win'; setWindows(isWindows); if (isWindows) void checkConnection(); else setConnection('The update helper is available for Windows.'); });
+    const focused = () => { if (isWindows) void checkConnection(); };
+    window.addEventListener('focus', focused);
+    return () => { active = false; window.removeEventListener('focus', focused); };
   }, [checkConnection, checkRelease]);
   async function task(name: string, operation: () => Promise<void>) {
     setWorking(name); setError(''); setNotice('');
@@ -38,13 +45,16 @@ export function GitHubUpdates({ busy, hasUnsavedChanges }: { busy: boolean; hasU
     finally { setWorking(''); }
   }
   async function downloadHelper() {
-    const response = await fetch(chrome.runtime.getURL('helper/Install-TabMarkerHelper.ps1'));
-    if (!response.ok) throw new Error('Helper setup is missing. Reinstall the latest built TabMarker package.');
-    const script = personalizeInstaller(await response.text(), chrome.runtime.id);
-    const url = URL.createObjectURL(new Blob([script], { type: 'text/plain;charset=utf-8' }));
-    try { await chrome.downloads.download({ url, filename: 'Install-TabMarkerHelper.ps1', saveAs: true }); }
+    const [script, launcher] = await Promise.all(['helper/Install-TabMarkerHelper.ps1', 'helper/Install TabMarker Helper.cmd'].map(async file => {
+      const response = await fetch(chrome.runtime.getURL(file));
+      if (!response.ok) throw new Error('Helper setup is missing. Reinstall the latest built TabMarker package.');
+      return response.text();
+    }));
+    const archive = helperSetupArchive(script, launcher, chrome.runtime.id);
+    const url = URL.createObjectURL(new Blob([archive], { type: 'application/zip' }));
+    try { await chrome.downloads.download({ url, filename: HELPER_SETUP_NAME, saveAs: true }); }
     finally { setTimeout(() => URL.revokeObjectURL(url), 60_000); }
-    setNotice('Helper installer prepared. Save it in Downloads, then run the setup command shown here. Chrome cannot run the installer for you.');
+    setNotice('ZIP ready. Choose Extract All, then double-click Install TabMarker Helper.cmd.');
   }
   async function update() {
     if (!release) return;
@@ -69,12 +79,12 @@ export function GitHubUpdates({ busy, hasUnsavedChanges }: { busy: boolean; hasU
     <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="secondary" disabled={disabled} onClick={() => void task('check', () => checkRelease(true))}>{working === 'check' ? 'Checking…' : 'Check for updates'}</button>{available && <button type="button" className="primary" disabled={disabled || !connected || !windows} onClick={() => void task('update', update)}>{working === 'update' ? 'Installing…' : `Install v${release.version}`}</button>}</div>
     <div className="mt-5 border-t border-slate-200 pt-4"><h3 className="text-sm font-bold text-slate-800">Windows update helper</h3><p className="hint" role="status">{connection}</p>
       {windows && <><div className="mt-3 flex flex-wrap gap-2"><button type="button" className={connected ? 'secondary' : 'primary'} disabled={disabled} onClick={() => void task('download', downloadHelper)}>{connected ? 'Download helper installer again' : 'Install helper'}</button><button type="button" className="secondary" disabled={disabled} onClick={() => void task('connection', checkConnection)}>Check connection</button></div>
-        {!connected && <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600"><li>Click <strong>Install helper</strong> and save the file in <strong>Downloads</strong>.</li><li>Open <strong>PowerShell</strong> as your usual Windows user. Paste and run this command:<code className="mt-2 block break-all rounded-lg bg-slate-50 p-3 text-xs">{SETUP_COMMAND}</code><button className="text-button mt-1 text-xs" type="button" disabled={disabled} onClick={() => void task('copy', async () => { await navigator.clipboard.writeText(SETUP_COMMAND); setNotice('Setup command copied.'); })}>Copy setup command</button><p className="hint">If you saved the file elsewhere or renamed it, use its actual path. If your organization blocks setup, ask IT to approve it.</p></li><li>Return here and click <strong>Check connection</strong>. Future updates use the Install version button above.</li></ol>}
+        {!connected && <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600"><li>Download the ZIP and choose <strong>Extract All</strong>.</li><li>Open the extracted folder. Double-click <strong>Install TabMarker Helper.cmd</strong>.</li><li>Return here. The helper connects automatically.</li></ol>}
       </>}
     </div>
     {notice && <p className="mt-4 text-sm text-slate-700" role="status">{notice}</p>}
     {error && <p className="mt-4 text-sm text-rose-700" role="alert">{error}</p>}
     {logPath && <p className="hint break-all">Update log: {logPath}</p>}
-    <p className="hint mt-4">Updates keep your saved rules. Temporary tab labels reset when TabMarker reloads. The helper runs as your Windows user and needs write access to the extension folder.</p>
+    <p className="hint mt-4">Saved rules stay. Reload TabMarker after updating, then refresh your website tabs.</p>
   </section>;
 }

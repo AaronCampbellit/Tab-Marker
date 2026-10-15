@@ -4,18 +4,17 @@ TabMarker checks its public GitHub repository for completed stable releases. On 
 
 ## Set up once
 
-1. Install/update to **0.4.8 or later**, then reload TabMarker. Existing users can use the pinned RMM launcher for this first update.
-2. Open **Manage rules → Updates**. Click **Install helper** and save `Install-TabMarkerHelper.ps1` in Downloads. The extension personalizes the bundled installer with its current extension ID.
-3. Open PowerShell as the **same Windows user who runs Chrome** and run:
+Use **0.4.9 or later** for this simpler setup. Existing users can use the pinned RMM launcher or their already-connected helper to update, then reload TabMarker.
 
-   ```powershell
-   powershell.exe -NoProfile -File "$env:USERPROFILE\Downloads\Install-TabMarkerHelper.ps1"
-   ```
+1. Open **Manage rules → Updates → Install helper**. Download the ZIP and choose **Extract All**.
+2. Open the extracted folder and double-click **Install TabMarker Helper.cmd**.
+3. Return to Settings. The helper connects automatically; **Check connection** is also available.
 
-   Use the actual path if the file was renamed or saved elsewhere. No administrator access or execution-policy change is requested. If endpoint controls or PowerShell policy block setup, use your organization's normal approval process.
-4. Return to Settings and click **Check connection**. It should say **Helper connected**.
+The ZIP contains exactly `Install TabMarker Helper.cmd` and `Install-TabMarkerHelper.ps1`. It is downloaded as `TabMarker-Helper-Setup.zip` with `application/zip`, so the scripts retain their real extensions inside the archive. The batch file locates the PowerShell companion beside itself, launches Windows PowerShell and preserves its exit code. Its window stays open so users can read success/failure feedback. There is no command to copy or filename to rename. The PowerShell installer remains personalized with the current extension ID.
 
-Setup validates its embedded payload and finds that extension ID in the current user's Chrome profile records. Chrome Stable, Beta, Dev and Canary are supported. For a custom `--user-data-dir`, add `-ChromeUserDataRoot 'C:\actual\User Data'` to the setup command. Only matching built, unpacked TabMarker installations are registered; source checkouts and packed extensions are excluded. No full-disk scan is performed.
+Run as the same Windows user who uses Chrome. No administrator access or execution-policy change is requested. If endpoint controls or PowerShell policy block setup, use your organization's normal approval process. Do not run the batch file from inside the ZIP viewer; extract both files together first.
+
+Setup validates its embedded payload and finds that extension ID in the current user's Chrome profile records. Chrome Stable, Beta, Dev and Canary are supported. For a custom `--user-data-dir`, IT can run the extracted PowerShell companion with `-ChromeUserDataRoot 'C:\actual\User Data'`, or pass that parameter through the batch launcher. Only matching built, unpacked TabMarker installations are registered; source checkouts and packed extensions are excluded. No full-disk scan is performed.
 
 The helper lives at `%LOCALAPPDATA%\TabMarker\Helper`. It registers its native-host manifest under the current user's `Software\Google\Chrome\NativeMessagingHosts\com.rarity.tabmarker` key in applicable registry views. It creates no service, scheduled task, elevation mechanism or system-wide registration. Another unpacked installation can run its own Settings-generated setup to add its validated ID without removing earlier registrations. Rerun setup to repair or upgrade the helper; an older installer refuses to downgrade a newer helper.
 
@@ -51,15 +50,16 @@ This removes only its matching current-user native-host registration and known p
 
 `npm run build` compiles the small native host and embeds it with the fixed updater/bridge scripts in `dist/helper/Install-TabMarkerHelper.ps1`. Build on Windows with the default .NET Framework compiler, or explicitly provision a compatible compiler through `TABMARKER_CSC`. Node/compiler are build-machine requirements. User devices need Windows PowerShell 5.1 and .NET Framework, with normal policy permission to run the helper/scripts.
 
-The new `downloads` permission prepares setup downloads; `nativeMessaging` connects to the host. GitHub uses existing HTTPS host access. Loading the extension alone installs no native software. Setup is not a web-accessible resource.
+The existing `downloads` permission saves the ZIP; `nativeMessaging` connects to the host. GitHub uses existing HTTPS host access. Loading the extension alone installs no native software. Setup is not a web-accessible resource. The ZIP is generated locally with exact filenames and CRC-32 entries; no remote packaging service is used.
 
 ```powershell
 npm run test:unit
 npm run build
 node tests/helper/native.tests.mjs --network
+node tests/helper/setup.tests.mjs
 powershell.exe -NoProfile -File tests/rmm/update.tests.ps1 -TestRoot 'C:\project\work\rmm-tests'
 ```
 
-The native harness exchanges real framed messages with the executable, tests input/authorization refusals, and exercises setup/repair/uninstall using an isolated test registry key. `--deploy` additionally installs the built version from its published GitHub release into an isolated Chrome-record fixture. Chrome UI checks use the built React pages with mocked Chrome/native/download APIs. Real Chrome-to-registered-host communication, live Cloud Files writes and RMM LocalSystem execution remain endpoint pilot checks; process/UI fixtures do not prove those cases.
+The native harness exchanges real framed messages with the executable, tests input/authorization refusals, and exercises setup/repair/uninstall using an isolated test registry key. `--deploy` additionally installs the built version from its published GitHub release into an isolated Chrome-record fixture. The setup harness extracts the actual archive with Windows ZIP support and runs its batch launcher, covering install, failure, missing-companion guidance, exit-code preservation and paths with spaces/punctuation. `--zip <file>` tests the archive downloaded by the browser. Chrome UI checks use the built React pages with mocked extension/native APIs and the real browser download mechanism. Real Chrome extension API/native-host integration, live Cloud Files writes and RMM LocalSystem execution remain endpoint pilot checks.
 
 References: [Chrome Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), [downloads](https://developer.chrome.com/docs/extensions/reference/api/downloads), [network requests](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests).
