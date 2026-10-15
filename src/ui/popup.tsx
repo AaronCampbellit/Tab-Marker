@@ -190,7 +190,7 @@ function Popup() {
     </div>
     <footer><Feedback error={error} success={success}/>{state && !blocked && <div className="flex gap-2"><button type="submit" form="customize-form" className="primary min-w-0 flex-1" disabled={busy || patternLoading || (scope === 'pattern' && !!patternError)}>{busy ? 'Working…' : 'Save customization'}</button>{tab?.customization && <button type="button" className="secondary text-xs" aria-label="Remove applied customization" disabled={busy} onClick={() => void remove()} title={tab.temporary ? 'Removes this tab override.' : 'Deletes the active saved rule for all matching tabs.'}>{tab.temporary ? 'Reset tab' : 'Delete rule'}</button>}</div>}
       <div className="popup-links"><a href={`${settingsURL}#diagnostics`} target="_blank" rel="noreferrer">Module diagnostics</a><a href={`${settingsURL}#backups`} target="_blank" rel="noreferrer" className={backups && backups.file.state !== 'synced' ? 'text-red-700' : ''}>{backupText}</a></div>
-      <div className="text-center text-[11px] text-slate-500"><VersionLabel/></div>
+      <div className="flex items-center justify-between text-[11px] text-slate-500"><a href={`${settingsURL}#updates`} target="_blank" rel="noreferrer" className="text-button text-xs">Updates ↗</a><VersionLabel/></div>
     </footer>
   </main>;
 }

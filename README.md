@@ -1,5 +1,11 @@
 # TabMarker
 
+## 0.4.8: GitHub updates and bundled Windows helper setup
+
+Open **Manage rules → Updates** to check published GitHub releases. **Install helper** downloads a standalone installer personalized for the current extension ID. Run it once as your usual Windows user, then click **Check connection**. Future releases can be installed from Settings and activated with the existing reload button. Chrome cannot launch the initial installer itself. The helper verifies each release and runs the bundled updater only for its registered extension ID. See [helper setup, requirements and validation limits](docs/HELPER-UPDATES.md).
+
+Use the [0.4.8 release](https://github.com/AaronCampbellit/Tab-Marker/releases/tag/v0.4.8) for the first update that adds these controls. Existing pinned RMM launchers retain their own version. The complete build now compiles the Windows helper with Windows' .NET Framework compiler (or an explicitly provisioned compatible `TABMARKER_CSC`).
+
 ## 0.4.7: clean deployment leftovers, keep the log
 
 The RMM updater now removes its downloaded ZIP, extraction staging and temporary rollback backups after each run, leaving only `install.log`. Final structured results are recorded in that log and the RMM console instead of a separate JSON file. Automatic rollback still runs before cleanup; only a failed rollback retains its needed recovery backup. Cleanup failures are reported with a nonzero exit code. Existing extension files, user rules, downloaded launchers/offline source packages and previous run folders are outside cleanup's scope. See [RMM deployment instructions](docs/RMM-DEPLOYMENT.md).
@@ -26,7 +32,7 @@ Download the compiled extension ZIP and standalone RMM deployment script from th
 
 TabMarker is a local-first Chrome Manifest V3 extension for custom tab titles and highly visible colored SVG favicons. Use a temporary customization for one tab, or save a rule that reapplies when a matching page opens. It is designed for repeated web application tabs, including future verified Autotask PSA module detection.
 
-There is no backend, account, external API, telemetry, or remote asset dependency. Rules live in this Chrome profile, with optional automatic backup to a file you choose on your device. Version **0.4.0** adds a compact red and grey editor, actionable diagnostics, backup export/import and recent recovery copies. Exact URL rules distinguish the reviewed Autotask landing-page views for Quote search, Generate invoices and Payment processing. Optional DOM module signatures remain empty until live validation. See [validation](docs/validation.md) for local Chrome evidence and remaining platform limits. Both production and development dependency audits are clean after the Tailwind 4 migration.
+TabMarker needs no account or application backend. Optional update checks contact GitHub; there is no telemetry and tab customization uses bundled assets. Rules live in this Chrome profile, with optional automatic backup to a file you choose on your device. Version **0.4.0** adds a compact red and grey editor, actionable diagnostics, backup export/import and recent recovery copies. Exact URL rules distinguish the reviewed Autotask landing-page views for Quote search, Generate invoices and Payment processing. Optional DOM module signatures remain empty until live validation. See [validation](docs/validation.md) for local Chrome evidence and remaining platform limits. Both production and development dependency audits are clean after the Tailwind 4 migration.
 
 ## Build and install
 
@@ -161,6 +167,8 @@ The content script changes `document.title` and favicon `<link>` elements. It re
 SPA navigation uses page lifecycle events, mutation-triggered URL checks, and a modest URL heartbeat in the isolated script. This avoids main-world history hooks and the `webNavigation` permission. A history change without a DOM mutation can take until the next heartbeat to match, and background/frozen tabs can delay execution. A changed rule is propagated to open supported tabs.
 
 ## Permissions and limitations
+
+- **`nativeMessaging`** connects Settings to the separately installed per-user Windows update helper. **`downloads`** saves the bundled, personalized helper installer. Optional release checks contact the fixed GitHub repository using existing HTTPS host access. Initial helper setup must be run by the user; the extension cannot launch it. See [helper setup](docs/HELPER-UPDATES.md).
 
 - **`storage`** persists rules and browser-session overrides. **`contextMenus`** supplies native commands. **HTTP(S) host/site access** allows automatic customization after navigation and reopening. The extension requests no `tabs`, `scripting`, `webNavigation`, `history`, `cookies`, `debugger`, `unlimitedStorage`, or cached-favicon permission.
 - Chrome internal pages such as `chrome://extensions`, the Chrome Web Store, other extensions' pages, `file:`, `data:`, `about:`, and browser PDF viewers are unsupported. The popup explains when a page cannot be customized. A normal HTTP(S) URL can also be inaccessible because site access is withheld or enterprise policy blocks injection.

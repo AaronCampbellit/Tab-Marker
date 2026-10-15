@@ -10,6 +10,7 @@ import './styles.css';
 import { Backups } from './backups';
 import { ModuleDiagnostics } from './diagnostics';
 import { UpdateNotice, VersionLabel } from './updates';
+import { GitHubUpdates } from './github-updates';
 
 interface Editor { rule: Rule; appearance: AppearanceForm; isNew: boolean }
 
@@ -76,7 +77,7 @@ function Options() {
   useEffect(() => {
     if (!loaded && !loadError) return;
     const id = location.hash.slice(1);
-    if (id === 'backups' || id === 'diagnostics') requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }));
+    if (id === 'backups' || id === 'diagnostics' || id === 'updates') requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }));
   }, [loaded, loadError]);
 
   function startEdit(rule?: Rule) {
@@ -120,7 +121,7 @@ function Options() {
   const query = search.trim().toLowerCase();
   const visible = rules.filter(rule => `${rule.title ?? ''} ${rule.match} ${rule.scope} ${SCOPE_LABELS[rule.scope]} ${rule.icon?.glyph ?? ''}`.toLowerCase().includes(query)).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
   return <main className="mx-auto max-w-4xl px-5 py-9 sm:px-8 sm:py-12">
-    <div className="flex flex-wrap items-start justify-between gap-3"><Brand subtitle="Your tabs. Instantly recognizable."/><nav className="flex gap-4 text-sm"><a className="text-button" href="#backups">Backups</a><a className="text-button" href="#diagnostics">Diagnostics</a></nav></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><Brand subtitle="Your tabs. Instantly recognizable."/><nav className="flex gap-4 text-sm"><a className="text-button" href="#backups">Backups</a><a className="text-button" href="#diagnostics">Diagnostics</a><a className="text-button" href="#updates">Updates</a></nav></div>
     <div className="mb-5"><UpdateNotice busy={busy} hasUnsavedChanges={() => editor !== null}/></div>
     <div className="mb-7 flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-3xl font-bold tracking-tight text-slate-900">Your rules</h2><p className="mt-2 text-sm text-slate-500">Persistent titles and icons, kept on this device.</p></div><button type="button" className="primary" disabled={busy} onClick={() => startEdit()}><span aria-hidden="true">＋</span>Add rule</button></div>
     <div className="mb-6 space-y-3"><Feedback error={error || loadError} success={success}/></div>
@@ -149,6 +150,7 @@ function Options() {
     </section>
     <Backups/>
     <ModuleDiagnostics rules={rules}/>
+    <GitHubUpdates busy={busy} hasUnsavedChanges={() => editor !== null}/>
     <details className="mt-7 rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer text-sm font-semibold text-slate-700">How rules are chosen</summary><p className="hint">Temporary tab override → exact URL → URL pattern → domain. An exact Autotask screen rule takes priority over an exact rule for the shared landing page. More specific patterns win; ties use the most recently updated rule, then the rule ID. Disabling or deleting the winning rule can reveal another match.</p><p className="hint">Rules survive navigation, reopened tabs, and Chrome restarts. Temporary tab overrides end when the tab closes or Chrome restarts. Chrome’s protected pages cannot be customized.</p></details>
     <footer className="mt-8 flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-5 text-xs text-slate-500"><span>TabMarker · Local-first, no account required</span><VersionLabel/></footer>
   </main>;

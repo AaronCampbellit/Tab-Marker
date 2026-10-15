@@ -4,6 +4,8 @@ This package updates **existing unpacked installations** on Windows using Window
 
 ## Quick deployment
 
+Version 0.4.8 also bundles a per-user Windows native-helper installer and adds **Manage rules → Updates** for GitHub checks and user-requested updates. The initial helper setup must be downloaded and run by the Chrome user; it cannot be launched by the extension. See [helper setup](HELPER-UPDATES.md). Existing RMM deployment remains available for the initial upgrade and administrator-owned/all-user installations. The helper uses `-OnlyExtensionId` to restrict this updater to the calling installation; that parameter cannot be combined with explicit `-ExtensionPath` overrides.
+
 Use **`Deploy-TabMarker-<version>.ps1`** as your RMM PowerShell component. It is standalone: paste its contents into the component or launch the downloaded file. No helper script or ZIP attachment is needed for online deployment.
 
 It downloads the built extension from `https://github.com/AaronCampbellit/Tab-Marker/releases/download/v<version>/TabMarker-Chrome-<version>.zip`. The expected release version and SHA-256 are pinned in the launcher. It does not follow `main`, the latest release, or GitHub's source-code ZIPs. Use a newly generated launcher for each future release.

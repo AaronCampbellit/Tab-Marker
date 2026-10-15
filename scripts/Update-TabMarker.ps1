@@ -16,6 +16,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Rollback')][string]$RollbackReceipt,
     [string[]]$ChromeUserDataRoot,
     [Parameter(ParameterSetName = 'Update')][string[]]$ExtensionPath,
+    [Parameter(ParameterSetName = 'Update')][ValidatePattern('^[a-p]{32}$')][string]$OnlyExtensionId,
     [string]$WorkRoot = "$env:ProgramData\TabMarkerRMM",
     [switch]$DryRun
 )
@@ -327,7 +328,7 @@ function DiscoverTargets {
                     if ($null -eq $settings) { continue }
                     foreach ($record in $settings.PSObject.Properties) {
                         # Chromium ManifestLocation::kUnpacked = 4. Packed/store installs are excluded.
-                        if ((Value $record.Value 'location') -ne 4 -or $record.Name -notmatch '^[a-p]{32}$') { continue }
+                        if ((Value $record.Value 'location') -ne 4 -or $record.Name -notmatch '^[a-p]{32}$' -or ($OnlyExtensionId -and $record.Name -cne $OnlyExtensionId)) { continue }
                         $path = [string](Value $record.Value 'path')
                         if (!$path) { continue }
                         $isTabMarker = $false
@@ -521,6 +522,7 @@ function Deploy($Target, [string]$Stage, $NewManifest) {
 
 try {
     InitializeRun $WorkRoot
+    if ($OnlyExtensionId -and $ExtensionPath) { throw 'OnlyExtensionId cannot be combined with an explicit ExtensionPath.' }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     Phase 'DiscoverProfiles' 'Discovering accessible desktop Chrome profiles.'
     $script:ChromeRoots = @(DiscoverRoots)

@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "TabMarker",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Persistent custom tab titles and colored favicons. Local rules, no accounts or tracking.",
   "minimum_chrome_version": "120",
   "permissions": [
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "nativeMessaging",
+    "downloads"
   ],
   "background": {
     "service_worker": "background.js",

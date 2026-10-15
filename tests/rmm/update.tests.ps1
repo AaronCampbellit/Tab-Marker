@@ -89,6 +89,14 @@ $rollback = InvokeUpdate @('-RollbackReceipt', $receipt, '-ChromeUserDataRoot', 
 Assert ($rollback.results[0].status -eq 'RolledBack') 'explicit rollback succeeds'
 Assert ((Read (Join-Path $shared 'manifest.json')).version -eq '0.4.3') 'rollback restores old manifest'
 Assert ((Read (Join-Path $shared 'update-status.json')).version -eq '0.4.3') 'rollback publishes restored version for reload notice'
+$scopedChrome = Join-Path $root 'scoped-chrome'; [void][IO.Directory]::CreateDirectory((Join-Path $scopedChrome 'Default'))
+$scopedTarget = Old 'scoped-target'; $otherTarget = Old 'other-id-target'
+Json (Join-Path $scopedChrome 'Default\Secure Preferences') @{ extensions = @{ settings = @{ ('d' * 32) = @{ location = 4; path = $scopedTarget }; ('e' * 32) = @{ location = 4; path = $otherTarget } } } }
+$scoped = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ChromeUserDataRoot', $scopedChrome, '-OnlyExtensionId', ('d' * 32), '-WorkRoot', (Join-Path $root 'runs'))
+Assert ($scoped.results.Count -eq 1 -and $scoped.results[0].target -eq $scopedTarget) 'helper-scoped update touches only its registered extension ID'
+Assert ((Read (Join-Path $otherTarget 'manifest.json')).version -eq '0.4.3') 'different unpacked TabMarker installation remains unchanged'
+$invalidScope = InvokeUpdate @('-PackagePath', $zip, '-Sha256', $sha, '-Version', $releaseVersion, '-ChromeUserDataRoot', $scopedChrome, '-OnlyExtensionId', ('d' * 32), '-ExtensionPath', $otherTarget, '-WorkRoot', (Join-Path $root 'runs')) 1
+Assert (($invalidScope.warnings -join ' ') -like '*OnlyExtensionId cannot be combined*') 'explicit path cannot broaden a helper-scoped update'
 $badSha = InvokeUpdate @('-PackagePath', $zip, '-Sha256', ('0' * 64), '-Version', $releaseVersion, '-ExtensionPath', $shared, '-ChromeUserDataRoot', $chrome, '-WorkRoot', (Join-Path $root 'runs')) 1
 Assert (($badSha.warnings -join ' ') -like '*SHA-256 mismatch*') 'wrong SHA-256 fails before deployment'
 Assert ((Read (Join-Path $shared 'manifest.json')).version -eq '0.4.3') 'checksum failure leaves old files in place'

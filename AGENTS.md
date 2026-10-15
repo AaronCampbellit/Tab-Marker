@@ -9,6 +9,13 @@
 - Package each release with `scripts/New-TabMarkerRelease.ps1`. Publish the compiled ZIP and standalone pinned RMM launcher under the matching `v<version>` GitHub Release. Verify remote branch/tag SHA, release version, asset checksum and the launcher's download before declaring publication complete.
 - Keep already-published release assets immutable. New runtime/build changes get a new version, tag, release ZIP, checksum and launcher.
 
+## Windows helper boundaries
+
+- Bundle setup through `scripts/build-helper.mjs`. Initial setup is an explicit user-run installer; never auto-execute a download or weaken execution policy/endpoint controls.
+- Keep native actions limited to status, check and update. Accept no caller-selected commands, URLs, repositories or target paths. Verify caller ID against registration and keep helper updates scoped with `OnlyExtensionId`.
+- Keep helper registration per-user and preserve Chrome profile files/settings. Do not add an elevation mechanism or background service without explicit scope approval.
+- Verify GitHub release metadata/asset digests and package hash/version before applying files. Keep automatic rollback and log-only run cleanup, retaining recovery backups when rollback fails.
+
 ## Workspace hygiene
 
 - Keep disposable files under `work/`; keep release deliverables in the requested output location.

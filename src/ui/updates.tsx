@@ -23,8 +23,9 @@ export function UpdateNotice({ busy = false, hasUnsavedChanges = () => false }: 
     void check();
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void check(); }, 15_000);
     window.addEventListener('focus', check);
+    window.addEventListener('tabmarker-deployment-changed', check);
     document.addEventListener('visibilitychange', check);
-    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
+    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', check); window.removeEventListener('tabmarker-deployment-changed', check); document.removeEventListener('visibilitychange', check); };
   }, []);
 
   async function reload() {

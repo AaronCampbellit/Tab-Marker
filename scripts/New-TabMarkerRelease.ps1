@@ -14,6 +14,7 @@ $dist = Join-Path $repo 'dist'
 $manifest = Get-Content -LiteralPath (Join-Path $dist 'manifest.json') -Raw | ConvertFrom-Json
 $marker = Get-Content -LiteralPath (Join-Path $dist 'update-status.json') -Raw | ConvertFrom-Json
 if ($manifest.name -cne 'TabMarker' -or $manifest.version -notmatch '^\d+(\.\d+){0,3}$' -or $manifest.version -cne $source.version -or $marker.version -cne $manifest.version -or $marker.state -cne 'ready') { throw 'Build, source and deployment metadata do not match. Run npm run build first.' }
+if (!(Test-Path -LiteralPath (Join-Path $dist 'helper\Install-TabMarkerHelper.ps1') -PathType Leaf)) { throw 'The bundled helper installer is missing. Build on Windows before packaging.' }
 $destination = [IO.Path]::GetFullPath($OutputDirectory)
 if ($destination.StartsWith($dist + '\', [StringComparison]::OrdinalIgnoreCase) -or $destination -eq $dist) { throw 'OutputDirectory must be outside dist.' }
 [void][IO.Directory]::CreateDirectory($destination)
@@ -24,10 +25,13 @@ if (Test-Path -LiteralPath $zip) { throw 'Release ZIP already exists. Use a new 
 $checksum = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 $downloadUrl = "https://github.com/$Repository/releases/download/v$($manifest.version)/$packageName"
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Update-TabMarker.ps1') -Destination $destination
-$guide = [IO.File]::ReadAllText((Join-Path $repo 'docs\RMM-DEPLOYMENT.md')).Replace('<version>', $manifest.version).Replace('AaronCampbellit/Tab-Marker', $Repository)
+Copy-Item -LiteralPath (Join-Path $dist 'helper\Install-TabMarkerHelper.ps1') -Destination (Join-Path $destination "Install-TabMarkerHelper-$($manifest.version).ps1")
+$guide = [IO.File]::ReadAllText((Join-Path $repo 'docs\RMM-DEPLOYMENT.md')).Replace('<version>', $manifest.version).Replace('AaronCampbellit/Tab-Marker', $Repository).Replace('HELPER-UPDATES.md', 'README-HELPER.md')
 [IO.File]::WriteAllText((Join-Path $destination 'README-RMM.md'), $guide)
+$helperGuide = [IO.File]::ReadAllText((Join-Path $repo 'docs\HELPER-UPDATES.md')).Replace('RMM-DEPLOYMENT.md', 'README-RMM.md')
+[IO.File]::WriteAllText((Join-Path $destination 'README-HELPER.md'), $helperGuide)
 [IO.File]::WriteAllText((Join-Path $destination 'SHA256SUMS.txt'), "$checksum  $packageName`r`n")
-$release = [ordered]@{ product = 'TabMarker'; version = $manifest.version; file = $packageName; downloadUrl = $downloadUrl; sha256 = $checksum; bytes = (Get-Item -LiteralPath $zip).Length; builtAtUtc = [DateTime]::UtcNow.ToString('o') }
+$release = [ordered]@{ product = 'TabMarker'; version = $manifest.version; file = $packageName; downloadUrl = $downloadUrl; sha256 = $checksum; bytes = (Get-Item -LiteralPath $zip).Length; minimumHelperProtocol = 1; builtAtUtc = [DateTime]::UtcNow.ToString('o') }
 [IO.File]::WriteAllText((Join-Path $destination 'release.json'), ($release | ConvertTo-Json))
 $wrapper = @'
 #requires -Version 5.1
@@ -41,6 +45,7 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Rollback')][string]$RollbackReceipt,
     [string[]]$ChromeUserDataRoot,
     [string[]]$ExtensionPath,
+    [Parameter(ParameterSetName = 'Update')][ValidatePattern('^[a-p]{32}$')][string]$OnlyExtensionId,
     [string]$WorkRoot = "$env:ProgramData\TabMarkerRMM",
     [switch]$DryRun
 )
