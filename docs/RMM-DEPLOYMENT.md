@@ -4,20 +4,18 @@ This package updates **existing unpacked installations** on Windows using Window
 
 ## Quick deployment
 
-Upload these three files together to the RMM job's attachment directory:
+Use **`Deploy-TabMarker-0.4.4.ps1`** as your RMM PowerShell component. It is standalone: paste its contents into the component or launch the downloaded file. No helper script or ZIP attachment is needed for online deployment.
 
-- `Deploy-TabMarker-0.4.4.ps1` (version and checksum already filled in)
-- `Update-TabMarker.ps1`
-- `TabMarker-Chrome-0.4.4.zip`
+It downloads the built extension from `https://github.com/AaronCampbellit/Tab-Marker/releases/download/v0.4.4/TabMarker-Chrome-0.4.4.zip`. The expected 0.4.4 version and SHA-256 are pinned in the launcher. It does not follow `main`, the latest release, or GitHub's source-code ZIPs. Use a newly generated launcher for each future release.
 
-Run as **LocalSystem** to reach all local Windows user profiles. First run the wrapper with `-DryRun`; review the target paths and warnings. Then run it without `-DryRun` to deploy. In an RMM that launches the script directly, put the wrapper's contents in the component and place the other two files beside that script. Otherwise launch the wrapper from the downloaded attachment directory:
+Run as **LocalSystem** to reach all local Windows user profiles. First run the script with `-DryRun`; review the target paths and warnings. Then run it without `-DryRun` to deploy:
 
 ```powershell
 powershell.exe -NoLogo -NoProfile -File .\Deploy-TabMarker-0.4.4.ps1 -DryRun
 powershell.exe -NoLogo -NoProfile -File .\Deploy-TabMarker-0.4.4.ps1
 ```
 
-The wrapper also accepts `-PackageUrl 'https://your-host/TabMarker-Chrome-0.4.4.zip'` instead of the adjacent ZIP. That URL is an example: publish the exact built ZIP to a reachable HTTPS location first. The expected checksum remains pinned in the wrapper. Private GitHub credentials are not bundled; use an RMM attachment or an authorized HTTPS download endpoint.
+For offline/RMM-attachment deployment, pass `-PackagePath 'C:\your-attachment-folder\TabMarker-Chrome-0.4.4.zip'`. This explicitly replaces the default download with that local ZIP. A `-PackageUrl` override can use a mirror serving the exact same bytes; the version and checksum remain pinned. The generic `Update-TabMarker.ps1` is also supplied for custom integrations and requires explicit version, checksum, and package source. Private GitHub credentials are not bundled.
 
 ## What users see
 
@@ -76,10 +74,10 @@ npm run build
 .\scripts\New-TabMarkerRelease.ps1 -OutputDirectory 'C:\your-project\work\release-staging'
 ```
 
-The packager creates the built ZIP, pinned deployment wrapper, updater, README, `release.json`, and `SHA256SUMS.txt`. It refuses to replace an existing release ZIP. Publish that ZIP as a GitHub Release asset or approved HTTPS download; a git push alone does not deploy it. Keep the pinned version/checksum together in the RMM component.
+The packager creates the built ZIP, standalone pinned deployment launcher, generic updater, README, `release.json`, and `SHA256SUMS.txt`. It refuses to replace an existing release ZIP. Its default repository is `AaronCampbellit/Tab-Marker`; `-Repository owner/repo` supports an authorized fork. Publish the ZIP and launcher as assets of the matching `v<version>` GitHub Release. A git push alone does not deploy it. Replace the RMM component with the new version's pinned launcher when you approve that release for deployment.
 
 ## Validation of this implementation
 
-The extension unit suite and build/typecheck pass. The RMM integration harness runs the real updater in Windows PowerShell 5.1 against isolated profile/extension fixtures, covering shared paths, multiple profiles, checksum/version failures, ZIP traversal/duplicates, locked-file rollback, modified installations, identity protection, and unchanged profile bytes. UI checks use the actual built React interface in installed Chrome with mocked extension APIs. The separate test Chromium executable failed to start (`spawn UNKNOWN` after four attempts), so activation in a real loaded extension and an actual RMM LocalSystem pilot remain to be verified. HTTPS package delivery must also be piloted against the chosen hosting endpoint.
+The extension unit suite and build/typecheck pass. The RMM integration harness runs the real updater in Windows PowerShell 5.1 against isolated profile/extension fixtures, covering shared paths, multiple profiles, checksum/version failures, ZIP traversal/duplicates, locked-file rollback, modified installations, identity protection, and unchanged profile bytes. UI checks use the actual built React interface in installed Chrome with mocked extension APIs. The separate test Chromium executable failed to start (`spawn UNKNOWN` after four attempts), so activation in a real loaded extension and an actual RMM LocalSystem pilot remain to be verified. See the release's VALIDATION.json for the published GitHub download/deployment checks; verify GitHub reachability from your own RMM network as part of the pilot.
 
 Chrome references: [reload requirements](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#reload), [runtime.reload](https://developer.chrome.com/docs/extensions/reference/api/runtime#method-reload). Discovery follows Chromium's [extension preference records](https://github.com/chromium/chromium/blob/main/extensions/browser/extension_prefs.cc) and [manifest locations](https://github.com/chromium/chromium/blob/main/extensions/common/mojom/manifest.mojom).
