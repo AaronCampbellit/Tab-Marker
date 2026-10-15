@@ -31,6 +31,14 @@ This rebuilds the unpacked extension after source changes. Wait for a successful
 
 Disabling, removing, or reloading the extension can leave its current document title/favicon in place until the website is refreshed. Rule removal through TabMarker can restore metadata while its script is connected; Chrome unloading the script does not provide a reliable cleanup callback. Refresh affected pages after disabling/removing and after reinstalling/reloading.
 
+## Current URL prefill in 0.4.1
+
+Selecting **URL pattern** in the toolbar editor fills a new pattern with the current website URL, including its query parameters. Credentials and fragments are excluded because they are not supported in patterns. No wildcard is appended automatically. Edit the URL to add `*` where needed, then check the live match preview before saving.
+
+Existing saved patterns and manual edits remain intact when changing scopes. **Use current URL** explicitly replaces the draft with the latest address of the editor's target tab, including after navigation. Opening **Manage rules** from the toolbar retains that tab as the source. In settings opened independently, choose a **Website tab** for a new URL pattern; existing rules are filled only when you explicitly click **Use current URL**.
+
+This is an explicit editor-only request: the full query URL is held in the unsaved field, not added to general state responses, diagnostics, storage, recovery or backups. Saving a URL-pattern rule persists the query filters visible in that field, including values copied from the page. Remove unwanted parameters before saving. Existing query-insensitive exact rules and reviewed Autotask exact-view matching are unchanged.
+
 ## Customizing tabs
 
 Set a title, an icon, or both. Icons use a six-digit hex color and one visible letter, number, or symbol. Titles are limited to 120 characters. An unset title or icon leaves that part of the page's metadata under page control.

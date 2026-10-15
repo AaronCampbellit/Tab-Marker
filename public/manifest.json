@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabMarker",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Persistent custom tab titles and colored favicons. Local rules, no accounts or tracking.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -13,7 +13,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Customize this tab \u00b7 TabMarker",
+    "default_title": "Customize this tab · TabMarker",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/16.png",

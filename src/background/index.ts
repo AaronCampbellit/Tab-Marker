@@ -1,5 +1,5 @@
 import { findMatchingRule } from '../core/matching';
-import { normalizeUrl, normalizeMatchingUrl, normalizeDomain, normalizePattern, patternMatches } from '../core/normalization';
+import { normalizeUrl, normalizeMatchingUrl, normalizeDomain, normalizePattern, patternMatches, urlForPattern } from '../core/normalization';
 import { migrateState, normalizeRule, validateCustomization } from '../core/rules';
 import { mergeBackup, parseBackup, serializeBackup } from '../core/backups';
 import { backupOverview, disconnectFile, HISTORY_KEY, recordBeforeChange, recoverySnapshots, resetFileStatus, syncFile } from './backups';
@@ -138,6 +138,16 @@ async function editableTab(id: number): Promise<TabState> {
 async function handle(request: Request): Promise<unknown> {
   switch (request.type) {
     case 'GET_STATE': return appState(request.tabId);
+    case 'GET_PATTERN_URL': {
+      const tab = await targetTab(request.tabId);
+      const rawUrl = tab?.url ?? tab?.pendingUrl;
+      const reason = restrictedReason(rawUrl);
+      if (reason) throw new Error(reason);
+      const url = urlForPattern(rawUrl ?? '');
+      if (!url || tab?.id === undefined) throw new Error('Choose a website tab to use its current URL.');
+      // This trusted-editor response is not state, telemetry, diagnostics, or a saved rule.
+      return { tabId: tab.id, url };
+    }
     case 'GET_BACKUPS': {
       try { return await backupOverview(await readState()); }
       catch {

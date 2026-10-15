@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { FormEvent } from 'react';
 import { request } from '../shared/client';
@@ -21,6 +21,44 @@ function Options() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [success, setSuccess] = useState('');
+  const [websiteTabs, setWebsiteTabs] = useState<chrome.tabs.Tab[]>([]);
+  const [websiteTabId, setWebsiteTabId] = useState(new URLSearchParams(location.search).get('tabId') ?? '');
+  const [patternLoading, setPatternLoading] = useState(false);
+  const matchEdited = useRef(false);
+  const patternRequest = useRef(0);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const tabs = (await chrome.tabs.query({})).filter(tab => tab.id !== undefined && /^https?:/.test(tab.url ?? ''));
+        setWebsiteTabs(tabs);
+        setWebsiteTabId(current => tabs.some(tab => String(tab.id) === current) ? current : String((tabs.length === 1 ? tabs[0].id : '') ?? ''));
+      } catch { /* A URL can still be entered manually if tab access is unavailable. */ }
+    };
+    void load();
+    window.addEventListener('focus', load);
+    return () => window.removeEventListener('focus', load);
+  }, []);
+
+  const useCurrentUrl = useCallback(async (editorId: string, id: number, force = false) => {
+    const sequence = ++patternRequest.current;
+    setPatternLoading(true); setError(''); setSuccess('');
+    try {
+      const result = await request('GET_PATTERN_URL', { tabId: id });
+      if (sequence !== patternRequest.current) return;
+      if (force) matchEdited.current = true;
+      setEditor(current => current?.rule.id === editorId && current.rule.scope === 'pattern' && (force || !matchEdited.current)
+        ? { ...current, rule: { ...current.rule, match: result.url } } : current);
+    } catch (cause) {
+      if (sequence === patternRequest.current) setError(cause instanceof Error ? cause.message : 'Could not read the current URL.');
+    } finally {
+      if (sequence === patternRequest.current) setPatternLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (editor?.isNew && editor.rule.scope === 'pattern' && websiteTabId && !matchEdited.current) void useCurrentUrl(editor.rule.id, Number(websiteTabId));
+  }, [editor?.rule.id, editor?.rule.scope, websiteTabId, useCurrentUrl]);
 
   const refresh = useCallback(async () => {
     try { setRules((await request('GET_STATE', {})).rules); setLoaded(true); setLoadError(''); }
@@ -40,6 +78,9 @@ function Options() {
   }, [loaded, loadError]);
 
   function startEdit(rule?: Rule) {
+    patternRequest.current++;
+    setPatternLoading(false);
+    matchEdited.current = !!rule;
     const now = Date.now();
     const next: Rule = rule ?? { id: crypto.randomUUID(), enabled: true, scope: 'exact', match: '', title: null, icon: { color: '#c62828', glyph: 'T' }, createdAt: now, updatedAt: now };
     setEditor({ rule: { ...next }, appearance: appearanceFrom(next), isNew: !rule });
@@ -82,11 +123,15 @@ function Options() {
     <div className="mb-6 space-y-3"><Feedback error={error || loadError} success={success}/></div>
     {editor && <section id="rule-editor" className="panel mb-7 scroll-mt-5 overflow-hidden" aria-labelledby="editor-heading"><div className="border-b border-slate-200 bg-slate-50 px-5 py-4"><h3 id="editor-heading" className="font-bold text-slate-900">{editor.isNew ? 'Add a rule' : 'Edit rule'}</h3><p className="hint">Choose which address to recognize and how its tab should look.</p></div>
       <form className="space-y-5 p-5" onSubmit={save} aria-label="Rule editor">
-        <div className="grid gap-4 sm:grid-cols-[180px_1fr]"><div><label className="label" htmlFor="edit-scope">Rule scope</label><select id="edit-scope" className="field" value={editor.rule.scope} disabled={busy} onChange={event => setEditor({ ...editor, rule: { ...editor.rule, scope: event.target.value as RuleScope } })}>{(['exact', 'pattern', 'domain'] as const).map(scope => <option key={scope} value={scope}>{SCOPE_LABELS[scope]}</option>)}</select></div><div><label className="label" htmlFor="edit-match">{editor.rule.scope === 'domain' ? 'Domain' : editor.rule.scope === 'pattern' ? 'URL pattern' : 'Exact URL'}</label><input id="edit-match" className="field font-mono text-sm" value={editor.rule.match} required spellCheck={false} disabled={busy} placeholder={editor.rule.scope === 'domain' ? 'example.com' : editor.rule.scope === 'pattern' ? 'https://example.com/work/*' : 'https://example.com/work'} onChange={event => setEditor({ ...editor, rule: { ...editor.rule, match: event.target.value } })}/></div></div>
+        <div className="grid gap-4 sm:grid-cols-[180px_1fr]"><div><label className="label" htmlFor="edit-scope">Rule scope</label><select id="edit-scope" className="field" value={editor.rule.scope} disabled={busy} onChange={event => setEditor({ ...editor, rule: { ...editor.rule, scope: event.target.value as RuleScope } })}>{(['exact', 'pattern', 'domain'] as const).map(scope => <option key={scope} value={scope}>{SCOPE_LABELS[scope]}</option>)}</select></div><div><label className="label" htmlFor="edit-match">{editor.rule.scope === 'domain' ? 'Domain' : editor.rule.scope === 'pattern' ? 'URL pattern' : 'Exact URL'}</label><input id="edit-match" className="field font-mono text-sm" value={editor.rule.match} required spellCheck={false} disabled={busy || patternLoading} placeholder={editor.rule.scope === 'domain' ? 'example.com' : editor.rule.scope === 'pattern' ? 'https://example.com/work/*' : 'https://example.com/work'} onChange={event => { matchEdited.current = true; setEditor({ ...editor, rule: { ...editor.rule, match: event.target.value } }); }}/></div></div>
+        {editor.rule.scope === 'pattern' && <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1"><label className="label" htmlFor="pattern-tab">Website tab</label><select id="pattern-tab" className="field" value={websiteTabId} disabled={busy || patternLoading} onChange={event => setWebsiteTabId(event.target.value)}><option value="">Choose a website tab…</option>{websiteTabs.map(tab => <option key={tab.id} value={tab.id}>{tab.title || new URL(tab.url!).hostname}</option>)}</select></div>
+          <button className="secondary" type="button" disabled={busy || patternLoading || !websiteTabId} onClick={() => void useCurrentUrl(editor.rule.id, Number(websiteTabId), true)}>{patternLoading ? 'Reading URL…' : 'Use current URL'}</button>
+        </div>}
         <p className="hint">{editor.rule.scope === 'domain' ? 'A hostname and its subdomains. All paths and both HTTP and HTTPS are covered.' : editor.rule.scope === 'pattern' ? 'Use * in the hostname, path or query values, for example https://ww*.autotask.net/*?view=inventory-order*. Only the query filters you enter are saved; omitted parameters are ignored.' : 'Include http:// or https://. For an Autotask screen, paste its full URL: only a recognized view parameter is retained.'} Fragments are ignored. Avoid putting private data in rules.</p>
         <div className="max-w-md"><AppearanceFields value={editor.appearance} disabled={busy} onChange={appearance => setEditor({ ...editor, appearance })}/></div>
         <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={editor.rule.enabled} disabled={busy} onChange={event => setEditor({ ...editor, rule: { ...editor.rule, enabled: event.target.checked } })}/>Rule enabled</label>
-        <div className="flex gap-3 border-t border-slate-200 pt-4"><button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save rule'}</button><button className="secondary" type="button" disabled={busy} onClick={() => setEditor(null)}>Cancel</button></div>
+        <div className="flex gap-3 border-t border-slate-200 pt-4"><button className="primary" type="submit" disabled={busy || patternLoading}>{busy ? 'Saving…' : 'Save rule'}</button><button className="secondary" type="button" disabled={busy} onClick={() => setEditor(null)}>Cancel</button></div>
       </form>
     </section>}
     <section aria-label="Saved rules"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div className="w-full max-w-md"><label className="sr-only" htmlFor="search">Search rules</label><input id="search" type="search" className="field" placeholder="Search titles, addresses, or scopes…" value={search} onChange={event => setSearch(event.target.value)}/></div><p className="text-xs text-slate-500">{visible.length} of {rules.length} {rules.length === 1 ? 'rule' : 'rules'}</p></div>

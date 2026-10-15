@@ -68,6 +68,8 @@ export interface BackupOverview {
 }
 export interface RequestMap {
   GET_STATE: { input: { tabId?: number }; output: AppState };
+  /** Explicit editor request. Query values stay in the unsaved draft until Save. */
+  GET_PATTERN_URL: { input: { tabId: number }; output: { tabId: number; url: string } };
   PREVIEW_PATTERN: {
     input: { tabId: number; pattern: string };
     output: { matches: boolean; normalizedPattern: string; exactRuleTakesPriority: boolean };

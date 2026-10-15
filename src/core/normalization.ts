@@ -27,6 +27,17 @@ export function normalizeUrl(input: string): string | null {
   }
 }
 
+/** An editor draft keeps query filters, but never credentials or an unsupported fragment. */
+export function urlForPattern(input: string): string | null {
+  if (!normalizeUrl(input)) return null;
+  const url = new URL(input.trim());
+  url.hostname = canonicalHostname(url.hostname);
+  url.username = '';
+  url.password = '';
+  url.hash = '';
+  return url.href;
+}
+
 /** Only reviewed Autotask screen identifiers may survive query sanitization. */
 export function normalizeMatchingUrl(input: string): string | null {
   const normalized = normalizeUrl(input);

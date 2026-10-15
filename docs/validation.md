@@ -1,5 +1,18 @@
 # Validation record
 
+## Current URL prefill in 0.4.1 - October 15, 2026
+
+Windows local validation: Node 24.16.0, built extension version 0.4.1.
+
+- Production build and TypeScript: passed.
+- Vitest: **209 passed across 10 files**. New coverage checks query-preserving pattern drafts, distinct Autotask views, encoded values, credential/fragment exclusion, protected URLs, editor-only access, fresh tab addresses and absence of automatic storage writes.
+- Built popup/settings checked in installed headless Chrome using Playwright CLI with mocked Chrome APIs: current URL prefill, query retention, no appended wildcard, manual edits across scope changes, fresh URL replacement after navigation, unchanged title edits, no implicit save, preservation of an existing saved pattern, source-tab context in settings, website-tab selection and narrow layout.
+- The popup and settings screenshots were visually reviewed. The synthetic page's missing favicon returned HTTP 404; no application exception occurred.
+- Full installed-extension acceptance and native toolbar interaction were **not re-run for this revision**. The real background handler is exercised by unit tests with mocked Chrome boundaries; UI checks do not prove actual Chrome extension message transport.
+- The two Rarity PDF/HTML guides were updated to 0.4.1, with structural and browser/print checks. All scratch profiles, builds and QA assets remained under the task's work directory; the temporary QA server was stopped.
+
+The results below record earlier 0.4.0 acceptance; they are not fresh 0.4.1 results.
+
 Date: **2026-10-14**. The local extension acceptance checks pass after correcting three test assumptions and a toolbar popup sizing bug, then migrating to Tailwind **4.3.3** to remove the affected build dependency chains. Version **0.4.0** adds the compact red/grey UI, actionable diagnostics, file backups and recovery; it retains the 0.3.0 query wildcard fixes, including the reported `view=inventory-order*` case. Live Autotask application and DOM module validation remain outstanding.
 
 Environment: **ubt-lab**, Linux, Node **24.19.0**, npm **11.17.0**, Playwright **1.64.1**, installed **Google Chrome for Testing 151.0.7922.34**. Browser suites use synthetic local HTTP pages and disposable profiles. Headed Chrome checks ran on a task-specific Xvfb display. No customer application or browser profile was used.

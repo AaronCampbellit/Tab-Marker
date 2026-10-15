@@ -210,6 +210,22 @@ describe('real background module with mocked Chrome API boundaries', () => {
       .toMatchObject({ matches: false });
   });
 
+  it('returns the current query URL only to an explicit editor request without storing it', async () => {
+    browser.tab.url = 'https://user:password@ww5.autotask.net/AutotaskOnyx/LandingPage?view=inventory-order-grid&token=PRIVATE_TOKEN#PRIVATE_FRAGMENT';
+    await browser.load();
+    const before = JSON.stringify([browser.local, browser.session]);
+    const draft = await browser.request<{ tabId: number; url: string }>({ type: 'GET_PATTERN_URL', tabId: browser.tab.id });
+    expect(draft).toEqual({ tabId: browser.tab.id, url: 'https://ww5.autotask.net/AutotaskOnyx/LandingPage?view=inventory-order-grid&token=PRIVATE_TOKEN' });
+    expect(JSON.stringify([browser.local, browser.session])).toBe(before);
+    expect(JSON.stringify(await browser.request({ type: 'GET_STATE', tabId: browser.tab.id }))).not.toContain('PRIVATE_TOKEN');
+    const sender = { id: EXTENSION_ID, url: browser.tab.url, tab: browser.tab as chrome.tabs.Tab, frameId: 0 };
+    expect(await browser.send({ type: 'GET_PATTERN_URL', tabId: browser.tab.id }, sender)).toBeUndefined();
+    browser.tab.url = 'https://example.com/new?view=current';
+    expect(await browser.request({ type: 'GET_PATTERN_URL', tabId: browser.tab.id })).toEqual({ tabId: browser.tab.id, url: browser.tab.url });
+    browser.tab.url = 'chrome://extensions';
+    await expect(browser.request({ type: 'GET_PATTERN_URL', tabId: browser.tab.id })).rejects.toThrow('Chrome protects this page');
+  });
+
   it('reports an exact-rule priority conflict in pattern previews', async () => {
     await browser.load();
     await browser.request({ type: 'UPSERT_RULE', rule: rule('exact') });
