@@ -7,6 +7,7 @@ import type { AppState, BackupOverview, RequestMap, RuleScope } from '../shared/
 import { AppearanceFields, appearanceFrom, Brand, customizationFrom, Feedback, ScopeHelp, SCOPE_LABELS } from './components';
 import type { AppearanceForm } from './components';
 import './styles.css';
+import { UpdateNotice } from './updates';
 
 function tabIdFromLocation(): number | undefined {
   const value = new URLSearchParams(location.search).get('tabId');
@@ -170,6 +171,7 @@ function Popup() {
   const backupText = backups?.file.state === 'synced' ? 'Backup up to date' : backups?.file.state === 'off' ? 'Set up backup' : backups ? 'Backup needs attention' : 'Backups';
   return <main className="popup-shell">
     <div className="popup-top"><Brand compact subtitle={tab?.customization ? `${tab.temporary ? 'Temporary override' : 'Persistent rule'} active` : 'Customize this tab'}/><a className="text-button text-xs" href={settingsURL} target="_blank" rel="noreferrer">Manage rules ↗</a></div>
+    <UpdateNotice busy={busy} hasUnsavedChanges={() => dirty.current}/>
     <div className="popup-content">
       {!state && !error && <p className="py-5 text-center text-sm text-slate-500" role="status">Loading tab…</p>}
       {state && blocked && <div className="panel p-4"><p className="text-sm font-semibold text-slate-800">This page cannot be customized</p><p className="hint">{tab?.unsupportedReason ?? 'Select a regular website tab, then open TabMarker again.'}</p><button className="primary mt-4 w-full" type="button" disabled>Save customization</button></div>}

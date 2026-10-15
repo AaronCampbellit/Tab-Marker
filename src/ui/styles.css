@@ -80,4 +80,7 @@
 .popup-shell footer [role="alert"], .popup-shell footer [role="status"] { font-size: 12px; line-height: 17px; padding: 8px 10px; border-radius: 8px; }
 .popup-shell .primary { border-radius: 8px; padding: 9px 12px; }
 .editor-window .popup-shell { width: 100%; margin: 0 auto; }
+.update-notice { font-size: 11px; line-height: 16px; color: #71717a; }
+.update-pending { border: 1px solid #fecaca; border-radius: 9px; padding: 10px; background: #fef2f2; color: #741f1f; }
+.update-title { font-weight: 700; font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }

@@ -9,6 +9,7 @@ import type { AppearanceForm } from './components';
 import './styles.css';
 import { Backups } from './backups';
 import { ModuleDiagnostics } from './diagnostics';
+import { UpdateNotice } from './updates';
 
 interface Editor { rule: Rule; appearance: AppearanceForm; isNew: boolean }
 
@@ -120,6 +121,7 @@ function Options() {
   const visible = rules.filter(rule => `${rule.title ?? ''} ${rule.match} ${rule.scope} ${SCOPE_LABELS[rule.scope]} ${rule.icon?.glyph ?? ''}`.toLowerCase().includes(query)).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
   return <main className="mx-auto max-w-4xl px-5 py-9 sm:px-8 sm:py-12">
     <div className="flex flex-wrap items-start justify-between gap-3"><Brand subtitle="Your tabs. Instantly recognizable."/><nav className="flex gap-4 text-sm"><a className="text-button" href="#backups">Backups</a><a className="text-button" href="#diagnostics">Diagnostics</a></nav></div>
+    <div className="mb-5"><UpdateNotice busy={busy} hasUnsavedChanges={() => editor !== null}/></div>
     <div className="mb-7 flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-3xl font-bold tracking-tight text-slate-900">Your rules</h2><p className="mt-2 text-sm text-slate-500">Persistent titles and icons, kept on this device.</p></div><button type="button" className="primary" disabled={busy} onClick={() => startEdit()}><span aria-hidden="true">＋</span>Add rule</button></div>
     <div className="mb-6 space-y-3"><Feedback error={error || loadError} success={success}/></div>
     {editor && <section id="rule-editor" className="panel mb-7 scroll-mt-5 overflow-hidden" aria-labelledby="editor-heading"><div className="border-b border-slate-200 bg-slate-50 px-5 py-4"><h3 id="editor-heading" className="font-bold text-slate-900">{editor.isNew ? 'Add a rule' : 'Edit rule'}</h3><p className="hint">Choose which address to recognize and how its tab should look.</p></div>
