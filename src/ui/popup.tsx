@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { request } from '../shared/client';
 import { normalizeUrl } from '../core/normalization';
 import { getAutotaskView } from '../integrations/autotask-routing';
-import type { AppState, Diagnostics, RuleScope } from '../shared/types';
+import type { AppState, Diagnostics, RequestMap, RuleScope } from '../shared/types';
 import { AppearanceFields, appearanceFrom, Brand, customizationFrom, Feedback, SCOPE_LABELS } from './components';
 import type { AppearanceForm } from './components';
 import './styles.css';
@@ -23,6 +23,8 @@ function Popup() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
+  const [patternPreview, setPatternPreview] = useState<RequestMap['PREVIEW_PATTERN']['output'] | null>(null);
+  const [patternError, setPatternError] = useState('');
   const dirty = useRef(false);
   const initialized = useRef<number | null>(null);
   const tabId = tabIdFromLocation();
@@ -52,6 +54,33 @@ function Popup() {
     return () => chrome.storage.onChanged.removeListener(changed);
   }, [refresh]);
 
+  const previewTabId = state?.tab?.id;
+  useEffect(() => {
+    setPatternPreview(null);
+    setPatternError('');
+    if (scope !== 'pattern' || previewTabId === undefined || !pattern.trim()) return;
+    let sequence = 0;
+    let cancelled = false;
+    const preview = async () => {
+      const current = ++sequence;
+      try {
+        const result = await request('PREVIEW_PATTERN', { tabId: previewTabId, pattern: pattern.trim() });
+        if (!cancelled && current === sequence) { setPatternPreview(result); setPatternError(''); }
+      } catch (cause) {
+        if (!cancelled && current === sequence) {
+          setPatternPreview(null);
+          setPatternError(cause instanceof Error ? cause.message : 'Could not preview this pattern.');
+        }
+      }
+    };
+    const timer = setTimeout(() => void preview(), 250);
+    const updated = (id: number, change: { url?: string }) => {
+      if (id === previewTabId && change.url) void preview();
+    };
+    chrome.tabs.onUpdated.addListener(updated);
+    return () => { cancelled = true; clearTimeout(timer); chrome.tabs.onUpdated.removeListener(updated); };
+  }, [scope, pattern, previewTabId]);
+
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!state?.tab) return;
@@ -59,9 +88,11 @@ function Popup() {
     try {
       const customization = customizationFrom(appearance);
       if (!customization.title && !customization.icon) throw new Error('Add a title or custom icon to save a customization.');
-      acceptState(await request('SAVE_CUSTOMIZATION', { tabId: state.tab.id, scope, ...(scope === 'pattern' ? { match: pattern.trim() } : {}), ...customization }), true);
+      const next = await request('SAVE_CUSTOMIZATION', { tabId: state.tab.id, scope, ...(scope === 'pattern' ? { match: pattern.trim() } : {}), ...customization });
+      acceptState(next, true);
       setDiagnostics(null);
-      setSuccess(scope === 'tab' ? 'Applied to this tab. This override ends when the tab closes.' : 'Rule saved. It will apply whenever this address matches.');
+      const exactWins = scope === 'pattern' && next.rules.some(rule => rule.id === next.tab?.matchedRuleId && rule.scope === 'exact');
+      setSuccess(scope === 'tab' ? 'Applied to this tab. This override ends when the tab closes.' : exactWins ? 'Pattern saved. An exact URL rule takes priority on this tab; manage your rules to change it.' : 'Rule saved. It will apply whenever this address matches.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save the customization.'); }
     finally { setBusy(false); }
   }
@@ -105,10 +136,10 @@ function Popup() {
         <form id="customize-form" onSubmit={save} className="space-y-5">
           <AppearanceFields value={appearance} disabled={busy} onChange={value => { dirty.current = true; setAppearance(value); setSuccess(''); }}/>
           <div><label className="label" htmlFor="scope">Rule scope</label><select id="scope" className="field" value={scope} disabled={busy} onChange={event => { dirty.current = true; setScope(event.target.value as RuleScope | 'tab'); setSuccess(''); }}>{Object.entries(SCOPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-            <p className="hint">{scope === 'tab' ? 'Follows this tab through navigation. Ends when you close the tab or restart Chrome.' : scope === 'exact' ? autotaskView ? `Matches this Autotask screen: ${autotaskView.label} (view=${autotaskView.id}). Other query parameters and fragments are ignored.` : 'Matches this exact hostname and path. Query parameters and fragments are ignored.' : scope === 'domain' ? 'Applies to every path on this hostname and its subdomains, using HTTP or HTTPS.' : 'Use * for any characters in the hostname or path. Query parameters and fragments are ignored.'}</p>
+            <p className="hint">{scope === 'tab' ? 'Follows this tab through navigation. Ends when you close the tab or restart Chrome.' : scope === 'exact' ? autotaskView ? `Matches this Autotask screen: ${autotaskView.label} (view=${autotaskView.id}). Other query parameters and fragments are ignored.` : 'Matches this exact hostname and path. Query parameters and fragments are ignored.' : scope === 'domain' ? 'Applies to every path on this hostname and its subdomains, using HTTP or HTTPS.' : 'Use * in the hostname, path or query values, for example ?view=inventory-order*. Parameters omitted from the pattern are ignored. Fragments are not supported.'}</p>
           </div>
-          {scope === 'pattern' && <div><label className="label" htmlFor="pattern">URL pattern</label><input id="pattern" className="field font-mono text-xs" type="text" required value={pattern} disabled={busy} onChange={event => { dirty.current = true; setPattern(event.target.value); }} placeholder="https://example.com/work/*" spellCheck={false}/></div>}
-          {scope !== 'tab' && <p className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-500">Saved locally in Chrome. Address rules store hostname and path, plus the recognized Autotask view for exact rules. Encoded view-data, other query values and page contents are never saved. Avoid paths containing customer information.</p>}
+          {scope === 'pattern' && <div><label className="label" htmlFor="pattern">URL pattern</label><input id="pattern" className="field font-mono text-xs" type="text" required maxLength={4096} value={pattern} disabled={busy} onChange={event => { dirty.current = true; setPattern(event.target.value); setError(''); setSuccess(''); }} placeholder="https://ww*.autotask.net/*?view=inventory-order*" spellCheck={false}/>{patternError && <p className="hint text-rose-700" role="alert">{patternError}</p>}{patternPreview && <p className="hint" role="status">{patternPreview.matches ? 'This pattern matches the current tab.' : 'This pattern does not match the current tab.'}{patternPreview.matches && patternPreview.exactRuleTakesPriority ? ' An exact URL rule currently takes priority.' : ''}</p>}</div>}
+          {scope !== 'tab' && <p className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-500">Saved locally in Chrome. Patterns store the query filters you enter; other query values are not copied from the page. Exact rules retain only recognized Autotask views. Avoid putting private data in rules.</p>}
         </form>
         {tab.customization && <div className="border-t border-slate-200 pt-3"><button type="button" className="text-button text-rose-600 hover:text-rose-800" disabled={busy} onClick={() => void remove()}>Remove applied customization</button><p className="hint">{tab.temporary ? 'Removes this tab’s temporary override.' : 'Deletes the active persistent rule for every matching tab.'} A lower-priority rule may then apply.</p></div>}
         <details className="border-t border-slate-200 pt-3"><summary className="cursor-pointer text-xs font-semibold text-slate-500">Module diagnostics</summary><p className="hint mt-3">Generate a safe summary with no raw URLs, page titles, query values, customer content, or authentication tokens. Nothing is saved or sent.</p><button className="secondary mt-3 w-full text-xs" disabled={busy} type="button" onClick={() => void inspect()}>Generate safe diagnostic summary</button>{diagnostics && <><pre className="mt-3 max-h-48 overflow-auto rounded-xl bg-slate-900 p-3 text-[10px] leading-relaxed text-slate-100" tabIndex={0} aria-label="Safe diagnostic summary">{JSON.stringify(diagnostics, null, 2)}</pre><button className="text-button mt-2 text-xs" type="button" onClick={() => void copyDiagnostics()}>Copy safe diagnostic summary</button></>}</details>

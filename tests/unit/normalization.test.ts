@@ -62,7 +62,7 @@ describe('limited, explicit URL patterns', () => {
   ])('%s against %s = %s', (pattern, url, expected) => {
     expect(patternMatches(pattern, url)).toBe(expected);
   });
-  it.each(['ftp://example.com/*', 'https://foo.*.com/*', 'https://example.com', 'https://example.com/*?token=*', 'https://example.com/*#x', 'https://user:pass@example.com/*', 'https://example.com:0/*', 'https://example.com:65536/*', 'https://*.*/*', 'https://*.*/page', 'https://*.[::1]/*', 'https://example.com/a b'])('rejects unsupported pattern %s', pattern => {
+  it.each(['ftp://example.com/*', 'https://example.com', 'https://example.com/*#x', 'https://user:pass@example.com/*', 'https://example.com:0/*', 'https://example.com:65536/*', 'https://*.[::1]/*', 'https://ww*..example.com/*', 'https://ww%2a.example.com/*', 'https://example.com/a b'])('rejects unsupported pattern %s', pattern => {
     expect(() => normalizePattern(pattern)).toThrow();
     expect(patternMatches(pattern, 'https://example.com/page')).toBe(false);
   });

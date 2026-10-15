@@ -16,7 +16,7 @@ export interface Rule extends Customization {
   updatedAt: number;
 }
 export interface StoredState {
-  version: 3;
+  version: 4;
   rules: Rule[];
 }
 export interface TabState {
@@ -48,6 +48,10 @@ export interface Diagnostics {
 }
 export interface RequestMap {
   GET_STATE: { input: { tabId?: number }; output: AppState };
+  PREVIEW_PATTERN: {
+    input: { tabId: number; pattern: string };
+    output: { matches: boolean; normalizedPattern: string; exactRuleTakesPriority: boolean };
+  };
   SAVE_CUSTOMIZATION: {
     input: { tabId: number; scope: RuleScope | 'tab'; match?: string } & Customization;
     output: AppState;

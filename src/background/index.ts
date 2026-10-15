@@ -1,5 +1,5 @@
 import { findMatchingRule } from '../core/matching';
-import { normalizeUrl, normalizeMatchingUrl, normalizeDomain } from '../core/normalization';
+import { normalizeUrl, normalizeMatchingUrl, normalizeDomain, normalizePattern, patternMatches } from '../core/normalization';
 import { migrateState, normalizeRule, validateCustomization } from '../core/rules';
 import type { AppState, Customization, Diagnostics, Request, Response, Rule, StoredState, TabState } from '../shared/types';
 
@@ -72,7 +72,7 @@ async function getTabState(state: StoredState, overrides: Overrides, id?: number
     }
   }
   const url = normalizeMatchingUrl(rawUrl ?? '') ?? '';
-  const selected = select(state, overrides, tab.id, url);
+  const selected = select(state, overrides, tab.id, rawUrl ?? '');
   return { id: tab.id, url, unsupportedReason, customization: selected.customization, matchedRuleId: selected.rule?.id ?? null, temporary: selected.temporary };
 }
 async function appState(tabId?: number): Promise<AppState> {
@@ -84,9 +84,14 @@ async function appState(tabId?: number): Promise<AppState> {
     nativeTabMenu: Boolean((await chrome.storage.session.get(MENU_KEY))[MENU_KEY]),
   };
 }
-async function applyTab(id: number, url: string, state?: StoredState, overrides?: Overrides): Promise<void> {
-  const selected = select(state ?? await readState(), overrides ?? await readOverrides(), id, url);
+async function applyTab(id: number, state?: StoredState, overrides?: Overrides): Promise<void> {
   try {
+    const tab = await targetTab(id);
+    const rawUrl = tab?.url ?? tab?.pendingUrl ?? '';
+    const url = normalizeMatchingUrl(rawUrl);
+    if (!url || restrictedReason(rawUrl)) return;
+    // Raw query values are examined only in worker memory, never returned or stored.
+    const selected = select(state ?? await readState(), overrides ?? await readOverrides(), id, rawUrl);
     await chrome.tabs.sendMessage(id, { type: 'TM_APPLY', customization: selected.customization, url }, { frameId: 0 });
   } catch { /* Closed, restricted, discarded, or pre-install tabs will apply at their next content-script load. */ }
 }
@@ -95,10 +100,10 @@ async function reapplyAll(): Promise<void> {
   const overrides = await readOverrides();
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.filter(tab => tab.id !== undefined && tab.url && !restrictedReason(tab.url))
-    .map(tab => applyTab(tab.id!, normalizeMatchingUrl(tab.url!)!, state, overrides)));
+    .map(tab => applyTab(tab.id!, state, overrides)));
 }
 async function saveRules(rules: Rule[]): Promise<void> {
-  await chrome.storage.local.set({ [STATE_KEY]: { version: 3, rules } satisfies StoredState });
+  await chrome.storage.local.set({ [STATE_KEY]: { version: 4, rules } satisfies StoredState });
   await reapplyAll();
 }
 async function editableTab(id: number): Promise<TabState> {
@@ -110,6 +115,17 @@ async function editableTab(id: number): Promise<TabState> {
 async function handle(request: Request): Promise<unknown> {
   switch (request.type) {
     case 'GET_STATE': return appState(request.tabId);
+    case 'PREVIEW_PATTERN': {
+      const pattern = normalizePattern(request.pattern);
+      const tab = await targetTab(request.tabId);
+      const rawUrl = tab?.url ?? tab?.pendingUrl ?? '';
+      const current = findMatchingRule((await readState()).rules, rawUrl);
+      return {
+        matches: patternMatches(pattern, rawUrl),
+        normalizedPattern: pattern,
+        exactRuleTakesPriority: current?.scope === 'exact',
+      };
+    }
     case 'SAVE_CUSTOMIZATION': {
       const tab = await editableTab(request.tabId);
       const customization = validateCustomization(request);
@@ -117,7 +133,7 @@ async function handle(request: Request): Promise<unknown> {
         const overrides = await readOverrides();
         overrides[String(tab.id)] = customization;
         await chrome.storage.session.set({ [OVERRIDES_KEY]: overrides });
-        await applyTab(tab.id, tab.url);
+        await applyTab(tab.id);
       } else {
         if (!['exact', 'pattern', 'domain'].includes(request.scope)) throw new Error('Choose a supported rule scope.');
         const state = await readState();
@@ -140,7 +156,7 @@ async function handle(request: Request): Promise<unknown> {
         const overrides = await readOverrides();
         delete overrides[String(tab.id)];
         await chrome.storage.session.set({ [OVERRIDES_KEY]: overrides });
-        await applyTab(tab.id, tab.url);
+        await applyTab(tab.id);
       } else if (tab.matchedRuleId) {
         const state = await readState();
         await saveRules(state.rules.filter(rule => rule.id !== tab.matchedRuleId));
@@ -188,7 +204,9 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     const url = typeof typed.url === 'string' ? normalizeMatchingUrl(typed.url) : null;
     if (!url) return false;
     void serial(async () => {
-      const selected = select(await readState(), await readOverrides(), sender.tab!.id!, url);
+      const tab = await targetTab(sender.tab!.id!);
+      const rawUrl = tab?.url ?? tab?.pendingUrl ?? '';
+      const selected = select(await readState(), await readOverrides(), sender.tab!.id!, rawUrl);
       sendResponse({ ok: true, data: selected.customization });
     }).catch(error => sendResponse({ ok: false, error: safeError(error) }));
     return true;
@@ -209,7 +227,7 @@ chrome.tabs.onRemoved.addListener(id => {
 });
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
   if ((change.status === 'complete' || change.url) && tab.url && !restrictedReason(tab.url)) {
-    void serial(() => applyTab(id, normalizeMatchingUrl(tab.url!)!)).catch(() => undefined);
+    void serial(() => applyTab(id)).catch(() => undefined);
   }
 });
 // Handles explicit settings changes as well as another trusted extension view.

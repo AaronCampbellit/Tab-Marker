@@ -16,7 +16,7 @@ export function findMatchingRule(rules: readonly Rule[], input: string): Rule | 
         ? normalizeMatchingUrl(rule.match) === normalizeMatchingUrl(input)
         : normalizeUrl(rule.match) === normalized;
     }
-    if (rule.scope === 'pattern') return patternMatches(rule.match, normalized);
+    if (rule.scope === 'pattern') return patternMatches(rule.match, input);
     if (rule.scope !== 'domain') return false;
     try {
       const domain = normalizeDomain(rule.match);

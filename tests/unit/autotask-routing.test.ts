@@ -59,11 +59,11 @@ describe('reviewed Autotask view matching', () => {
   it('migrates old exact rules without opting them into new query semantics', () => {
     const legacy = { version: 2, rules: [rule('old', `${landing}?view=quote-search&token=PRIVATE`)] };
     const migrated = migrateState(legacy);
-    expect(migrated.version).toBe(3);
+    expect(migrated.version).toBe(4);
     expect(migrated.rules[0].match).toBe(landing);
     expect(findMatchingRule(migrated.rules, `${landing}?view=generate-invoices`)?.id).toBe('old');
     expect(legacy.rules[0].match).toContain('PRIVATE');
     const current = { version: 3, rules: [rule('new', `${landing}?view=quote-search`)] };
-    expect(migrateState(current)).toEqual(current);
+    expect(migrateState(current)).toEqual({ ...current, version: 4 });
   });
 });

@@ -66,12 +66,18 @@ interface ParsedPattern {
   host: string;
   port: string;
   path: string;
+  query: [string, string][];
+}
+
+function serializePattern(pattern: ParsedPattern): string {
+  const query = new URLSearchParams(pattern.query).toString();
+  return `${pattern.scheme}://${pattern.host}${pattern.port ? `:${pattern.port}` : ''}${pattern.path}${query ? `?${query}` : ''}`;
 }
 
 function parsePattern(input: string): ParsedPattern {
-  const match = /^(https?|\*):\/\/([^/]+)(\/.*)$/i.exec(input);
-  if (!match || FORBIDDEN_URL_CHARACTERS.test(input) || /[?\u0023@]/.test(input)) {
-    throw new Error('Use a URL pattern such as https://*.example.com/path/*; queries and fragments are not supported.');
+  const match = /^(https?|\*):\/\/([^/?#]+)(\/[^?#]*)(?:\?([^#]*))?$/i.exec(input);
+  if (!match || input.length > 4096 || FORBIDDEN_URL_CHARACTERS.test(input) || match[2].includes('@')) {
+    throw new Error('Use an HTTP(S) URL pattern, such as https://ww*.example.com/path/*?view=inventory-order*. Fragments and credentials are not supported; the limit is 4096 characters.');
   }
   const scheme = match[1].toLowerCase() as ParsedPattern['scheme'];
   const authority = /^(\[[0-9a-f:.]+\]|[^:]+)(?::(\d{1,5}))?$/i.exec(match[2]);
@@ -81,34 +87,51 @@ function parsePattern(input: string): ParsedPattern {
   if (rawPort && (Number(rawPort) < 1 || Number(rawPort) > 65535)) {
     throw new Error('A pattern port must be between 1 and 65535.');
   }
-  const subdomains = rawHost.startsWith('*.');
-  const hostOnly = subdomains ? rawHost.slice(2) : rawHost;
-  if (!hostOnly || (hostOnly !== '*' && hostOnly.includes('*')) || (subdomains && hostOnly === '*')) {
-    throw new Error('Only * or a leading *. is supported in a pattern hostname.');
+  let host: string;
+  if (rawHost.startsWith('*.') && !rawHost.slice(2).includes('*')) {
+    const domain = normalizeDomain(rawHost.slice(2));
+    if (domain.startsWith('[')) throw new Error('An IPv6 hostname cannot have subdomains.');
+    host = `*.${domain}`;
+  } else if (rawHost.includes('*')) {
+    host = canonicalHostname(rawHost).replace(/\*+/g, '*');
+    if (!host.split('.').every(label => /^[a-z0-9_*-]+$/.test(label))) {
+      throw new Error('Hostname wildcards require ASCII hostname labels. Use punycode for international hostname labels.');
+    }
+  } else {
+    host = normalizeDomain(rawHost);
   }
-  const canonicalHost = hostOnly === '*' ? '*' : normalizeDomain(hostOnly);
-  if (subdomains && canonicalHost.startsWith('[')) throw new Error('An IPv6 hostname cannot have subdomains.');
-  const url = new URL(`${scheme === '*' ? 'https' : scheme}://${canonicalHost === '*' ? 'pattern.invalid' : canonicalHost}/${match[3].slice(1)}`);
-  return {
+  const url = new URL(`${scheme === '*' ? 'https' : scheme}://${host.includes('*') ? 'pattern.invalid' : host}${match[3]}`);
+  const query = [...new URLSearchParams(match[4] ?? '').entries()];
+  const keys = new Set<string>();
+  for (const [key, value] of query) {
+    if (!key || key.includes('*') || /[\u0000-\u001f\u007f]/.test(key + value)) {
+      throw new Error('Query filters need literal parameter names and values without control characters. Place * in the value, for example view=inventory-order*.');
+    }
+    if (keys.has(key)) throw new Error('Use each query parameter only once in a pattern.');
+    keys.add(key);
+  }
+  query.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+  const pattern: ParsedPattern = {
     scheme,
-    host: `${subdomains ? '*.' : ''}${canonicalHost}`,
+    host,
     port: rawPort ? String(Number(rawPort)) : '',
     path: url.pathname.replace(/\*+/g, '*'),
+    query: query.map(([key, value]) => [key, value.replace(/\*+/g, '*')]),
   };
+  if (serializePattern(pattern).length > 4096) throw new Error('The normalized URL pattern must contain at most 4096 characters.');
+  return pattern;
 }
 
 /** Small, explicit grammar; intentionally not a regular-expression input. */
 export function normalizePattern(input: string): string {
   if (typeof input !== 'string') throw new Error('Enter a URL pattern.');
-  const pattern = parsePattern(input.trim());
-  return `${pattern.scheme}://${pattern.host}${pattern.port ? `:${pattern.port}` : ''}${pattern.path}`;
+  return serializePattern(parsePattern(input.trim()));
 }
 
 function hostMatches(pattern: string, hostname: string): boolean {
-  if (pattern === '*') return true;
-  if (!pattern.startsWith('*.')) return pattern === hostname;
-  const domain = pattern.slice(2);
-  return hostname === domain || hostname.endsWith(`.${domain}`);
+  // Preserve the original *.example.com behavior, including the apex domain.
+  if (pattern.startsWith('*.') && !pattern.slice(2).includes('*') && hostname === pattern.slice(2)) return true;
+  return pathMatches(pattern, hostname);
 }
 
 /** Greedy glob matching avoids the exponential backtracking of repeated .* regexes. */
@@ -145,7 +168,12 @@ export function patternMatches(pattern: string, input: string): boolean {
     if (parsed.scheme !== '*' && `${parsed.scheme}:` !== url.protocol) return false;
     if (!hostMatches(parsed.host, url.hostname)) return false;
     if (parsed.port && parsed.port !== (url.port || (url.protocol === 'https:' ? '443' : '80'))) return false;
-    return pathMatches(parsed.path, url.pathname);
+    if (!pathMatches(parsed.path, url.pathname)) return false;
+    const actualQuery = new URL(input).searchParams;
+    return parsed.query.every(([key, value]) => {
+      const actualValues = actualQuery.getAll(key);
+      return actualValues.length === 1 && pathMatches(value, actualValues[0]);
+    });
   } catch {
     return false;
   }

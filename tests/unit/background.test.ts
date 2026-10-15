@@ -126,7 +126,7 @@ describe('real background module with mocked Chrome API boundaries', () => {
     })));
     const result = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
     expect(result.rules.map(item => item.id).sort()).toEqual(Array.from({ length: 12 }, (_, index) => `rule-${index}`).sort());
-    expect(browser.local[STATE_KEY]).toEqual({ version: 3, rules: result.rules });
+    expect(browser.local[STATE_KEY]).toEqual({ version: 4, rules: result.rules });
     expect(browser.api.storage.local.setAccessLevel).toHaveBeenCalledWith({ accessLevel: 'TRUSTED_CONTEXTS' });
     expect(result.nativeTabMenu).toBe(false);
   });
@@ -136,7 +136,7 @@ describe('real background module with mocked Chrome API boundaries', () => {
     await browser.load();
     const migrated = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
     expect(migrated.rules[0].icon).toEqual({ color: '#123456', glyph: 'L' });
-    expect(browser.local[STATE_KEY]).toEqual({ version: 3, rules: migrated.rules });
+    expect(browser.local[STATE_KEY]).toEqual({ version: 4, rules: migrated.rules });
     const future = { version: 9, rules: [{ futureData: 'preserve me' }] };
     browser.local[STATE_KEY] = structuredClone(future);
     const rejected = await browser.send({ type: 'UPSERT_RULE', rule: rule('new') });
@@ -185,5 +185,34 @@ describe('real background module with mocked Chrome API boundaries', () => {
       expect(stored.rules).toHaveLength(1);
       expect(stored.rules[0]).toMatchObject({ id: futureRule.id, createdAt: 1000, updatedAt: 2000 });
     }
+  });
+
+  it('previews and applies query filters without returning or storing unrelated query values', async () => {
+    const landing = 'https://ww5.autotask.net/AutotaskOnyx/LandingPage';
+    browser.tab.url = `${landing}?view=inventory-order-grid&view-data=PRIVATE_ENCODED&token=PRIVATE_TOKEN`;
+    await browser.load();
+    const pattern = `${landing}?view=inventory-order*`;
+    const preview = await browser.request({ type: 'PREVIEW_PATTERN', tabId: browser.tab.id, pattern });
+    expect(preview).toEqual({ matches: true, normalizedPattern: pattern, exactRuleTakesPriority: false });
+    await browser.request({ type: 'SAVE_CUSTOMIZATION', tabId: browser.tab.id, scope: 'pattern', match: pattern, title: 'Inventory', icon: null });
+    const state = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
+    expect(state.tab).toMatchObject({ url: landing, customization: { title: 'Inventory' } });
+    expect(state.rules[0].match).toBe(pattern);
+    const contentSender = { id: EXTENSION_ID, url: browser.tab.url, tab: browser.tab as chrome.tabs.Tab, frameId: 0 };
+    expect(await browser.send({ type: 'TM_READY', url: landing }, contentSender)).toEqual({ ok: true, data: { title: 'Inventory', icon: null } });
+    expect(await browser.send({ type: 'PREVIEW_PATTERN', tabId: browser.tab.id, pattern }, contentSender)).toBeUndefined();
+    expect(JSON.stringify([state, preview, browser.local, browser.session, browser.api.tabs.sendMessage.mock.calls]))
+      .not.toMatch(/PRIVATE_|view-data|token=/);
+    browser.tab.url = `${landing}?view=quote-search&view-data=PRIVATE_CHANGED`;
+    expect((await browser.request({ type: 'GET_STATE', tabId: browser.tab.id })).tab?.customization).toBeNull();
+    expect(await browser.request({ type: 'PREVIEW_PATTERN', tabId: browser.tab.id, pattern }))
+      .toMatchObject({ matches: false });
+  });
+
+  it('reports an exact-rule priority conflict in pattern previews', async () => {
+    await browser.load();
+    await browser.request({ type: 'UPSERT_RULE', rule: rule('exact') });
+    expect(await browser.request({ type: 'PREVIEW_PATTERN', tabId: browser.tab.id, pattern: 'https://example.com/*' }))
+      .toMatchObject({ matches: true, exactRuleTakesPriority: true });
   });
 });

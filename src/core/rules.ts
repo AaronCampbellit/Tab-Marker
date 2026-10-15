@@ -53,14 +53,14 @@ export function normalizeRule(value: unknown): Rule {
 
 /** Never reset corrupt or newer data: callers can report the error and preserve it. */
 export function migrateState(value: unknown): StoredState {
-  if (value === null || value === undefined) return { version: 3, rules: [] };
+  if (value === null || value === undefined) return { version: 4, rules: [] };
   const state = object(value, 'Saved state');
-  if (state.version !== 1 && state.version !== 2 && state.version !== 3) {
+  if (state.version !== 1 && state.version !== 2 && state.version !== 3 && state.version !== 4) {
     throw new Error('This saved data uses an unsupported schema version. It has been preserved.');
   }
   if (!Array.isArray(state.rules)) throw new Error('Saved rules are invalid. The saved data has been preserved.');
   const rules = state.rules.map(value => {
-    if (state.version === 3) return normalizeRule(value);
+    if (state.version === 3 || state.version === 4) return normalizeRule(value);
     const legacy = object(value, 'Legacy rule');
     let icon = legacy.icon;
     if (state.version === 1 && icon !== null && typeof icon === 'object' && !Array.isArray(icon)) {
@@ -77,7 +77,7 @@ export function migrateState(value: unknown): StoredState {
   if (new Set(rules.map(rule => rule.id)).size !== rules.length) {
     throw new Error('Saved rules contain duplicate identifiers. The saved data has been preserved.');
   }
-  return { version: 3, rules };
+  return { version: 4, rules };
 }
 
 export { createFavicon } from './favicon';

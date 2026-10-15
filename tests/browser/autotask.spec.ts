@@ -39,7 +39,7 @@ test('popup saves three independent Autotask views and restores them across a br
   expect(stored).not.toMatch(/PRIVATE_|view-data|token=|Original Autotask/);
   expect(stored).not.toContain(encodedPrivate);
   expect(await extension.bridge.evaluate(() => chrome.storage.local.get('tabmarker.state')))
-    .toMatchObject({ 'tabmarker.state': { version: 3 } });
+    .toMatchObject({ 'tabmarker.state': { version: 4 } });
   await extension.restart();
   await interceptAutotask(extension);
   for (const [view, label] of Object.entries(AUTOTASK_VIEWS)) {
