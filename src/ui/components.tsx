@@ -16,7 +16,7 @@ export function appearanceFrom(value: Customization | null): AppearanceForm {
   return {
     title: value?.title ?? '',
     keepIcon: value !== null && value.icon === null,
-    color: value?.icon?.color ?? '#2563eb',
+    color: value?.icon?.color ?? '#c62828',
     glyph: value?.icon?.glyph ?? 'T',
   };
 }
@@ -26,8 +26,8 @@ export function customizationFrom(value: AppearanceForm): Customization {
 }
 
 export function Brand({ subtitle, compact = false }: { subtitle: string; compact?: boolean }) {
-  return <header className={`flex items-center gap-3 ${compact ? 'mb-5' : 'mb-8'}`}>
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-xs" aria-hidden="true">
+  return <header className={`flex items-center gap-3 ${compact ? 'brand-compact' : 'mb-8'}`}>
+    <div className="brand-mark flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-600 text-white shadow-xs" aria-hidden="true">
       <svg width="25" height="25" viewBox="0 0 24 24" fill="none"><path d="M8 5h11v13M5 8h11v12H5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M8 12h5M10.5 12v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
     </div>
     <div><h1 className="text-xl font-bold tracking-tight text-slate-900">TabMarker</h1><p className="mt-0.5 text-xs text-slate-500">{subtitle}</p></div>
@@ -41,9 +41,15 @@ export function IconPreview({ icon, size = 30 }: { icon: IconSpec | null; size?:
   </svg> : <span aria-label="Original page icon" style={{ width: size, height: size }} className="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z" stroke="currentColor" strokeWidth="1.5"/></svg></span>;
 }
 
-export function AppearanceFields({ value, onChange, disabled = false }: { value: AppearanceForm; onChange: (value: AppearanceForm) => void; disabled?: boolean }) {
+export function AppearanceFields({ value, onChange, disabled = false, compact = false }: { value: AppearanceForm; onChange: (value: AppearanceForm) => void; disabled?: boolean; compact?: boolean }) {
   const id = useId();
   function change(patch: Partial<AppearanceForm>) { onChange({ ...value, ...patch }); }
+  if (compact) return <div className="appearance-compact">
+    <div><label className="label" htmlFor={`${id}-title`}>Tab title <span className="label-note" aria-hidden="true">optional</span></label><input id={`${id}-title`} className="field" value={value.title} maxLength={120} disabled={disabled} placeholder="Keep page title" aria-label="Tab title" onChange={e => change({ title: e.target.value })} title="Leave blank to keep the page title. Up to 120 characters."/></div>
+    <div className="icon-editor"><div className="flex items-center justify-between gap-2"><span className="label mb-0">Tab icon</span><label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={value.keepIcon} disabled={disabled} onChange={e => change({ keepIcon: e.target.checked })}/>Keep page icon</label></div>
+      {!value.keepIcon && <div className="mt-2 flex items-end gap-3"><div><label className="label" htmlFor={`${id}-color`}>Icon color</label><input id={`${id}-color`} className="field h-[38px] w-14" type="color" value={value.color} disabled={disabled} onChange={e => change({ color: e.target.value })}/></div><div className="min-w-0 flex-1"><label className="label" htmlFor={`${id}-glyph`}>Icon symbol</label><input id={`${id}-glyph`} className="field" value={value.glyph} maxLength={8} disabled={disabled} onChange={e => change({ glyph: e.target.value })} placeholder="T" required title="One letter, number or symbol"/></div><div className="pb-1" aria-label="Tab preview"><IconPreview icon={{ color: value.color, glyph: value.glyph }} size={30}/></div></div>}
+    </div>
+  </div>;
   return <div className="space-y-4">
     <div><label className="label" htmlFor={`${id}-title`}>Tab title</label><input id={`${id}-title`} className="field" value={value.title} maxLength={120} disabled={disabled} placeholder="e.g. Service desk" onChange={e => change({ title: e.target.value })} aria-describedby={`${id}-title-hint`}/><p id={`${id}-title-hint`} className="hint">Leave blank to keep the page title. Up to 120 characters.</p></div>
     <div>

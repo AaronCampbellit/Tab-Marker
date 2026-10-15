@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppState, Request, Response, Rule } from '../../src/shared/types';
+import type { AppState, BackupOverview, Request, Response, Rule } from '../../src/shared/types';
 
 const STATE_KEY = 'tabmarker.state';
 const OVERRIDES_KEY = 'tabmarker.overrides';
@@ -47,6 +47,7 @@ function createChromeMock() {
     runtime: {
       id: EXTENSION_ID,
       getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
+      getManifest: () => ({ version: '0.4.0' }),
       onMessage,
       onInstalled,
       onStartup,
@@ -214,5 +215,70 @@ describe('real background module with mocked Chrome API boundaries', () => {
     await browser.request({ type: 'UPSERT_RULE', rule: rule('exact') });
     expect(await browser.request({ type: 'PREVIEW_PATTERN', tabId: browser.tab.id, pattern: 'https://example.com/*' }))
       .toMatchObject({ matches: true, exactRuleTakesPriority: true });
+  });
+
+  it('exports validated rules and restores deleted rules after a worker restart', async () => {
+    await browser.load();
+    await browser.request({ type: 'UPSERT_RULE', rule: rule('recover-me') });
+    const text = await browser.request<string>({ type: 'EXPORT_BACKUP' });
+    expect(JSON.parse(text).state.rules[0].id).toBe('recover-me');
+    await browser.request({ type: 'DELETE_RULE', id: 'recover-me' });
+    await browser.restartModule();
+    const backups = await browser.request<BackupOverview>({ type: 'GET_BACKUPS' });
+    const beforeDeletion = backups.snapshots.find(item => item.ruleCount === 1)!;
+    expect(beforeDeletion).toBeTruthy();
+    expect((await browser.request({ type: 'RESTORE_SNAPSHOT', id: beforeDeletion.id })).rules[0].id).toBe('recover-me');
+    await browser.request({ type: 'IMPORT_BACKUP', text, mode: 'replace' });
+    expect((await browser.request({ type: 'GET_STATE' })).rules).toHaveLength(1);
+  });
+
+  it('rejects invalid imports atomically, including a single bad rule and invalid mode', async () => {
+    await browser.load();
+    await browser.request({ type: 'UPSERT_RULE', rule: rule('existing') });
+    const before = structuredClone(browser.local);
+    const bad = JSON.stringify({ format: 'tabmarker-backup', version: 1, state: { version: 4, rules: [rule('valid'), { ...rule('bad'), enabled: 'yes' }] } });
+    for (const text of ['not json', bad]) {
+      await expect(browser.request({ type: 'IMPORT_BACKUP', text, mode: 'replace' })).rejects.toThrow();
+      expect(browser.local).toEqual(before);
+    }
+    await expect(browser.request({ type: 'IMPORT_BACKUP', text: '{}', mode: 'invalid' } as unknown as Request)).rejects.toThrow('Choose merge or replace');
+    await expect(browser.request({ type: 'RESTORE_SNAPSHOT', id: 'missing' })).rejects.toThrow('no longer available');
+    expect(browser.local).toEqual(before);
+  });
+
+  it('preserves current rules and recovery history if a storage write fails', async () => {
+    await browser.load();
+    await browser.request({ type: 'UPSERT_RULE', rule: rule('existing') });
+    const before = structuredClone(browser.local);
+    browser.api.storage.local.set.mockRejectedValueOnce(new Error('Storage quota exceeded.'));
+    await expect(browser.request({ type: 'DELETE_RULE', id: 'existing' })).rejects.toThrow('quota');
+    expect(browser.local).toEqual(before);
+  });
+
+  it('allows explicit recovery from damaged state while preserving the unreadable original', async () => {
+    await browser.load();
+    await browser.request({ type: 'UPSERT_RULE', rule: rule('recoverable') });
+    const backup = await browser.request<string>({ type: 'EXPORT_BACKUP' });
+    const damaged = { version: 4, rules: [{ id: 'damaged', title: null }] };
+    browser.local[STATE_KEY] = damaged;
+    await expect(browser.request({ type: 'GET_STATE' })).rejects.toThrow();
+    const overview = await browser.request<BackupOverview>({ type: 'GET_BACKUPS' });
+    expect(overview.file.message).toContain('Saved rules cannot be read');
+    expect(overview.snapshots.length).toBeGreaterThan(0);
+    await browser.request({ type: 'IMPORT_BACKUP', text: backup, mode: 'replace' });
+    expect((await browser.request({ type: 'GET_STATE' })).rules[0].id).toBe('recoverable');
+    expect(browser.local['tabmarker.preservedState']).toEqual({ createdAt: expect.any(Number), value: damaged });
+  });
+
+  it('does not turn a missing state key into an empty state when recovery data already exists', async () => {
+    await browser.load();
+    await browser.request({ type: 'UPSERT_RULE', rule: rule('missing-state') });
+    const backup = await browser.request<string>({ type: 'EXPORT_BACKUP' });
+    delete browser.local[STATE_KEY];
+    await expect(browser.request({ type: 'GET_STATE' })).rejects.toThrow('Saved rules are missing');
+    await expect(browser.request({ type: 'SYNC_BACKUP' })).rejects.toThrow('Saved rules are missing');
+    expect(browser.local[STATE_KEY]).toBeUndefined();
+    await browser.request({ type: 'IMPORT_BACKUP', text: backup, mode: 'replace' });
+    expect((await browser.request({ type: 'GET_STATE' })).rules[0].id).toBe('missing-state');
   });
 });

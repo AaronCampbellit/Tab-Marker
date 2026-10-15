@@ -2,7 +2,7 @@
 
 TabMarker is a local-first Chrome Manifest V3 extension for custom tab titles and highly visible colored SVG favicons. Use a temporary customization for one tab, or save a rule that reapplies when a matching page opens. It is designed for repeated web application tabs, including future verified Autotask PSA module detection.
 
-There is no backend, account, external API, telemetry, or remote asset dependency. Rules remain in this Chrome profile. Exact URL rules distinguish the reviewed Autotask landing-page views for Quote search, Generate invoices and Payment processing. Optional DOM module signatures remain empty until live validation. Local verification passed all **200 tests**, including real extension loading, browser/worker restart behavior, the toolbar popup and native inactive-tab menu editing on Chrome for Testing 151. See [validation](docs/validation.md) for evidence and the unverified live Autotask scope. Both production and development dependency audits are clean after the Tailwind 4 migration.
+There is no backend, account, external API, telemetry, or remote asset dependency. Rules live in this Chrome profile, with optional automatic backup to a file you choose on your device. Version **0.4.0** adds a compact red and grey editor, actionable diagnostics, backup export/import and recent recovery copies. Exact URL rules distinguish the reviewed Autotask landing-page views for Quote search, Generate invoices and Payment processing. Optional DOM module signatures remain empty until live validation. See [validation](docs/validation.md) for local Chrome evidence and remaining platform limits. Both production and development dependency audits are clean after the Tailwind 4 migration.
 
 ## Build and install
 
@@ -71,7 +71,29 @@ On `autotask.net` or its subdomains at `/AutotaskOnyx/LandingPage`, **Exact URL*
 
 Exact rules do not decode the `view-data` payload or store it; other query values and fragments are removed. Query-filtered patterns are a separate, explicit opt-in and do not require an allowlisted view. A screen-specific exact rule wins over an older exact rule for the shared landing page; the older rule remains a fallback for other screens. Query-only SPA navigation re-evaluates the screen. These three signatures come from user-supplied links and synthetic browser verification; automatic exact recognition of additional views and DOM/iframe identification require separate review; users can already create query-filtered patterns for additional views.
 
-To update an unpacked installation while retaining its rules, replace the files in the existing extension folder, click **Reload** at `chrome://extensions`, and refresh Autotask tabs. Version **0.3.0** migrates existing rules while preserving earlier exact/view matching and query-free patterns.
+To update an unpacked installation while retaining its rules, replace the files in the **existing extension folder**, click **Reload** at `chrome://extensions`, and refresh Autotask tabs. Keep the same folder and extension ID. Version **0.4.0** retains rule schema 4 and existing matching behavior. A new folder can create a separate extension with separate storage; import a backup if moving installations.
+
+## Rule storage, backups and recovery
+
+Persistent rules are saved in `chrome.storage.local` under `tabmarker.state`, inside the installed extension's Chrome profile. They survive worker suspension and Chrome restarts. Removing the extension or deleting the profile removes that local storage. Temporary tab overrides are session-only and are intentionally excluded from backups.
+
+In **Manage rules → Backups**, select **Choose backup file** and pick a JSON file outside the unpacked extension folder, for example in Documents. TabMarker writes the current rules there and updates that file after persistent rule changes. You can choose a folder already protected by your computer's backup or file-sync software. TabMarker itself does not synchronize between devices or read edits back from the file automatically.
+
+Chrome requires you to choose the file and grant access. A file handle is remembered in extension-owned IndexedDB, but write access may need renewal after a browser restart. The popup links to backup status, and settings show the destination filename, last successful write and actionable errors. Use **Allow file access** or **Sync now** when needed. Disk failures do not discard the rule saved in Chrome. Changed files are detected by size/modification time; automatic updates pause if a previously synced file was edited externally. Keep a copy of that external file before using **Sync now**, which explicitly replaces it. Disconnecting keeps the file on disk. No new extension permissions are required for the [user-selected File System Access API](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access); [Chrome controls permission persistence](https://developer.chrome.com/blog/persistent-permissions-for-the-file-system-access-api).
+
+**Download backup** saves a portable JSON snapshot without connecting an automatic destination. **Import backup** validates the entire file (up to 32 MB), previews its rule count and waits for confirmation. Merge keeps existing rules and imports conflicting copies disabled for review; identical IDs/contents are skipped. Replace explicitly replaces all persistent rules, including with an empty backup. Import never changes temporary overrides, so a temporary override can still take priority afterward. Open tabs re-evaluate restored rules.
+
+Before each rule change, up to **10 recent states within a 1 MB history budget** are stored under `tabmarker.recovery`. **Recent recovery copies** can undo an accidental edit/deletion or restore. They are inside the same profile and do not protect against uninstalling. An explicitly confirmed Replace import or recovery restore can also repair unreadable current state; the original unreadable data is preserved under `tabmarker.preservedState`. Ordinary saves and automatic startup never reset damaged or newer state.
+
+Backups contain your custom labels, icons and matching addresses, including any query filters you entered. Store them privately. An external backup survives extension removal, but you still need your normal computer backup to protect against disk loss. No storage scheme guarantees that rules can never be lost.
+
+## Module diagnostics
+
+Open **Module diagnostics** from the editor, choose the target tab and select **Inspect tab**. The report shows the reviewed Autotask screen when recognized, whether the content script responded, whether the requested title and favicon links are applied, and every matching enabled saved rule in priority order. A temporary override is called out separately. It gives a next step for missing rules, priority conflicts and metadata mismatches.
+
+Unknown Autotask views are labeled unrecognized rather than assigned a guessed module. They can still match explicit query-filtered patterns. Diagnostics inspect only the top document; iframe-only identity needs a separately verified integration. The favicon status checks DOM link attributes, not whether Chrome's icon cache or the website's CSP allows the icon to display.
+
+The on-demand report is not saved or uploaded. Copied JSON excludes raw URLs, unreviewed query values and page contents. It includes static reviewed view labels, rule IDs, application booleans, matching scopes, extension version and coarse URL categories. The on-screen rule list uses labels/addresses you already saved.
 
 ## Native tab menu and toolbar fallback
 
@@ -106,7 +128,7 @@ SPA navigation uses page lifecycle events, mutation-triggered URL checks, and a 
 - Some website Content Security Policies reject data-URL SVG favicons. Browser caching and SVG/font/emoji rendering can also affect appearance. Title changes can work even when Chrome cannot display a generated icon. TabMarker does not bypass page security policy.
 - Reopening an address re-evaluates saved rules; a temporary override does not follow a reopened tab. Persisted rules apply when restored pages actually load. Chrome may initially show cached titles/icons before content scripts run, particularly for discarded/restored tabs.
 - The extension changes page metadata, so title-dependent page features may see the custom title. It does not rename Chrome windows, tab groups, bookmarks, history records, or every Chrome UI label. Another extension or browser-managed surface can override the visible result.
-- No synchronization or export/import service is included. Removing the extension deletes its local rules. Local-first storage is not encrypted secret storage.
+- Removing the extension deletes its profile-local rules and recovery copies. Choose a separate backup file or export a snapshot first. File access is browser-controlled and macOS native picker behavior has not been exercised by the Linux automated tests. Local-first storage is not encrypted secret storage.
 
 ## Validation
 

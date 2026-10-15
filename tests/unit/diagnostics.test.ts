@@ -23,6 +23,7 @@ describe('privacy-preserving page diagnostics', () => {
       pathSegmentKinds: ['text', 'text', 'number', 'uuid', 'opaque'],
       queryKeyCategories: ['module', 'view', 'page', 'action', 'other-keys-present'],
       hasFragment: true,
+      recognizedView: null,
       approvedModuleId: null,
       approvedSignals: {},
       note: expect.any(String),
@@ -69,6 +70,13 @@ describe('privacy-preserving page diagnostics', () => {
     expect(Object.isFrozen(APPROVED_AUTOTASK_ADAPTERS)).toBe(true);
     expect(inspectApprovedAutotaskModules(new URL('https://ww1.autotask.net/UnverifiedModule'), unreadableDocument))
       .toEqual({ approvedModuleId: null, approvedSignals: {} });
+  });
+
+  it('identifies reviewed landing-page screens without exposing encoded payloads', () => {
+    const report = getPageDiagnostics('https://ww5.autotask.net/AutotaskOnyx/LandingPage?view=quote-search&view-data=PRIVATE_TOKEN#PRIVATE_FRAGMENT', unreadableDocument);
+    expect(report.recognizedView).toEqual({ id: 'quote-search', label: 'Quote search' });
+    expect(report.note).toContain('Quote search');
+    expect(JSON.stringify(report)).not.toContain('PRIVATE');
   });
 
   it.each(['chrome://settings/', 'chrome-extension://id/options.html', 'file:///private/customer.txt', 'data:text/html,Secret', 'not a URL Secret'])('rejects unsupported input with a fixed safe error', (url) => {

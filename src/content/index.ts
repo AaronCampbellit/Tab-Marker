@@ -200,7 +200,13 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | { type: 'TM_PING
     else setCustomization(message.customization);
     sendResponse({ ok: true });
   } else if (message.type === 'TM_DIAGNOSTICS') {
-    sendResponse(getPageDiagnostics(location.href, document));
+    const links = [...document.querySelectorAll<HTMLLinkElement>('link[rel]')].filter(link => /(?:^|\s)icon(?:\s|$)/i.test(link.rel));
+    sendResponse({ ...getPageDiagnostics(location.href, document), application: {
+      titleRequested: !!customization?.title,
+      titleApplied: !!customization?.title && document.title === customization.title,
+      iconRequested: !!customization?.icon,
+      iconLinksApplied: !!iconUrl && links.length > 0 && links.every(link => link.getAttribute('href') === iconUrl),
+    } });
   }
   return false;
 });

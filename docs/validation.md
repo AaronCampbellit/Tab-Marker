@@ -1,6 +1,6 @@
 # Validation record
 
-Date: **2026-10-14**. The local extension acceptance checks pass after correcting three test assumptions and a toolbar popup sizing bug, then migrating to Tailwind **4.3.3** to remove the affected build dependency chains. Version **0.3.0** adds partial-hostname wildcards, explicit query-value filters and current-tab pattern previews, including the reported `view=inventory-order*` case. Live Autotask application and DOM module validation remain outstanding.
+Date: **2026-10-14**. The local extension acceptance checks pass after correcting three test assumptions and a toolbar popup sizing bug, then migrating to Tailwind **4.3.3** to remove the affected build dependency chains. Version **0.4.0** adds the compact red/grey UI, actionable diagnostics, file backups and recovery; it retains the 0.3.0 query wildcard fixes, including the reported `view=inventory-order*` case. Live Autotask application and DOM module validation remain outstanding.
 
 Environment: **ubt-lab**, Linux, Node **24.19.0**, npm **11.17.0**, Playwright **1.64.1**, installed **Google Chrome for Testing 151.0.7922.34**. Browser suites use synthetic local HTTP pages and disposable profiles. Headed Chrome checks ran on a task-specific Xvfb display. No customer application or browser profile was used.
 
@@ -10,10 +10,10 @@ Environment: **ubt-lab**, Linux, Node **24.19.0**, npm **11.17.0**, Playwright *
 | --- | --- | --- |
 | Clean dependency installation | Passed | `npm ci --no-audit --no-fund`; regenerated lockfile verified by a fresh clean install; Tailwind and its official Vite plugin both pinned to **4.3.3** |
 | Production build and TypeScript | Passed | `npm run build` includes `tsc --noEmit`; packaged MV3 manifest, React pages, worker and content script |
-| Vitest | **178 passed, 7 files** | Rule matching, normalization, validation/migration, diagnostic privacy and mocked worker behavior |
+| Vitest | **202 passed, 9 files** | Rule matching, normalization, validation/migration, diagnostic privacy and mocked worker behavior |
 | Chromium content DOM tests | **6 passed** | Built content script in real Chrome documents with only the runtime messaging API mocked |
-| Full-extension browser tests | **16 passed, none skipped** | Real extension installation, worker, Chrome messaging/storage, title/favicon rendering, navigation, persistence, settings and restricted-page behavior |
-| Real toolbar popup | Passed | Opened through Chrome's Extensions toolbar menu; measured viewport and document width **390px**, height **600px**; typed `toolbar qa` and clicked Save; active website title and session override updated |
+| Full-extension browser tests | **19 passed, none skipped** | Real extension installation, worker, Chrome messaging/storage, title/favicon rendering, navigation, persistence, settings and restricted-page behavior |
+| Real toolbar popup | Passed | Opened through Chrome's Extensions toolbar menu; measured viewport **390×501** before Save and **390×543** after Save, with matching document heights and no scrolling; typed and saved a pattern rule through native input/click events |
 | Native tab context menu | Passed on tested browser | Visually observed the actual tab-strip command; clicked it on an inactive tab, saved a temporary customization, and confirmed the inactive tab changed while the active tab retained its original title |
 | Settings visual checks | Passed | Actual extension settings at **1440×900** and **390×844**; document widths do not exceed viewport widths (headed Chrome may reserve 15px for its vertical scrollbar), with no horizontal overflow; create/save/toggle/search and narrow editor checks pass |
 | Console health | No application errors | Vite's generated shared-module preload produces Chrome warnings about an unused/cross-world preload; both pages load and execute normally |
@@ -27,7 +27,25 @@ Final suite command:
 CHROMIUM_PATH=/home/acampbell/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome npm run test:all
 ```
 
-This ran **200 tests**, all passing, with production builds/typechecks before both browser suites. Set `CHROMIUM_PATH` to a compatible installed browser on other machines. No new browser installation or managed-policy modification was needed here.
+This ran **227 tests**, all passing, with production builds/typechecks before both browser suites. Set `CHROMIUM_PATH` to a compatible installed browser on other machines. No new browser installation or managed-policy modification was needed here.
+
+## Compact UI, diagnostics and backups in 0.4.0
+
+Red accents and neutral grey surfaces replace the purple palette throughout the popup, settings and packaged icons. The compact editor removes the large duplicate preview and persistent help/privacy cards; diagnostics and backup controls live in settings. Save and Delete rule share a row. A real toolbar check found Chrome floors fractional popup heights, producing a one-pixel scrollbar; the toolbar document now rounds its preferred height up. The final **390×543** saved-pattern popup has no vertical or horizontal overflow and retains accessible input labels and **4px** color-picker padding.
+
+A real separate editor window was opened through `chrome.windows.create` in an isolated Chrome profile. Its resize observer reduced the initial 420×610 window to **420×467**, with a **411px** content viewport, **410.5px** main content and no scrolling. This removes the unused lower area in the supplied screenshot. Mac window chrome and scaling were not exercised.
+
+The module report now names the three reviewed Autotask views, checks content-script connectivity and actual requested title/favicon link application, lists enabled matching rules in deterministic priority order, calls out temporary overrides, and gives a relevant next step. Unknown views remain unrecognized; no DOM signatures were invented. Copyable JSON retains privacy filtering. Browser coverage verifies applied title/icon booleans and competing pattern/domain rules; the rendered diagnostic panel shows active-rule evidence and excludes synthetic private query values.
+
+Rule changes keep up to ten prior validated states within a 1 MB local history budget. Export/import uses a versioned, validated JSON envelope (32 MB input limit); invalid imports leave current rules untouched. Merge retains existing rules and disables conflicting copies; replace and recovery require explicit UI actions. Explicit recovery from damaged or missing state preserves the unreadable original. Missing primary storage with existing recovery/backup metadata is treated as an error, preventing an automatic empty reset from overwriting a good file backup.
+
+Optional linked-file backups use a user-selected File System Access handle stored in extension-owned IndexedDB. Worker writes follow successful persistent-rule saves and retry at startup. Settings show permission renewal, pending/outdated backups, disk failures and last successful sync. Size/modification-time changes to an existing backup pause automatic writes; explicit Sync now may replace it. No manifest permissions or dependencies were added. Unit checks cover denied permission, write/close errors, removed files, stale state, externally changed files, storage-write failure and preserved data. Browser checks use real file handles/IndexedDB/streams and a full browser restart, with only the native picker replaced by an OPFS handle for automation. Export download, import confirmation, validation failure, deletion recovery and tab reapplication are exercised through the UI.
+
+The **native OS save picker remains unverified**: Playwright's chooser interception aborts File System Access pickers, and a separate Chrome process without Playwright also returned AbortError in this Linux environment without displaying a native dialog. No tools or packages were installed to change the host. These results establish worker/file-handle behavior, not macOS picker or permission-dialog behavior. Chrome may require renewed file access after restart. External files survive uninstall, while local recovery and handles do not; ordinary device backups are still needed for disk loss.
+
+Rendered checks used the installed Playwright CLI because the Browser plugin was unavailable. The tested flow was editor → choose query pattern → preview → save → observe changed tab and visible controls, plus settings → backup import/recovery and diagnostics → inspect selected tab. Page identity, nonblank rendering, absence of overlays, console health, screenshots and interaction assertions passed. Settings were checked at **1120×900** and **390×844** with no horizontal overflow. Only the existing Vite shared-module preload warnings were observed.
+
+Evidence is under `/tmp/tabmarker-redesign-qa/`: `toolbar-final.png`, `backups-final.png`, `diagnostics-final.png` and `settings-narrow.png`. The final full suite is **202 unit + 6 content + 19 extension = 227 passing tests**. `npm audit` and `npm audit --omit=dev` remain clean. Historical migration measurements below describe the earlier purple UI, not the 0.4.0 palette.
 
 ## Corrections discovered by local verification
 

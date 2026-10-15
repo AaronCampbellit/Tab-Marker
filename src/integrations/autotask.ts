@@ -1,4 +1,5 @@
 import type { Diagnostics } from '../shared/types';
+import { getAutotaskView } from './autotask-routing';
 
 /** Only reviewed, static signatures belong here. Never discover selectors from page text. */
 export interface AutotaskModuleAdapter {
@@ -79,8 +80,8 @@ function classifyPathSegment(segment: string): Diagnostics['pathSegmentKinds'][n
 
 /**
  * Called only for an explicit diagnostic request. This function does not store,
- * log, or transmit data. Its result is intentionally too coarse to infer routes;
- * live application access is needed to approve useful module signatures.
+ * log, or transmit data. Only reviewed view identifiers are named; other route
+ * values stay coarse. Live access is needed to approve additional signatures.
  */
 export function getPageDiagnostics(url: string, document: Document): PageDiagnostics {
   let parsed: URL;
@@ -104,6 +105,7 @@ export function getPageDiagnostics(url: string, document: Document): PageDiagnos
   if (unknownKeysPresent) queryKeyCategories.push('other-keys-present');
 
   const siteKind = isAutotaskHostname(parsed.hostname) ? 'autotask' : 'ordinary';
+  const recognizedView = getAutotaskView(url);
   return {
     formatVersion: 1,
     siteKind,
@@ -111,9 +113,10 @@ export function getPageDiagnostics(url: string, document: Document): PageDiagnos
     pathSegmentKinds: parsed.pathname.split('/').filter(Boolean).slice(0, 20).map(classifyPathSegment),
     queryKeyCategories,
     hasFragment: parsed.hash.length > 0,
+    recognizedView,
     ...inspectApprovedAutotaskModules(parsed, document),
-    note: siteKind === 'autotask'
-      ? 'No Autotask module signatures have been verified. This coarse summary cannot identify module routes. Live application access is required to review static route and optional DOM-presence signatures.'
+    note: recognizedView ? `Recognized Autotask screen: ${recognizedView.label}. Identification uses the reviewed landing-page view parameter; iframe contents are not inspected.` : siteKind === 'autotask'
+      ? 'This address has no reviewed Autotask screen signature. This summary cannot identify module routes inside frames. Use a query-filtered URL pattern for additional views; encoded view-data and page contents are not inspected.'
       : 'Coarse local diagnostics only. URL values and page contents are excluded; module identification is available only for approved Autotask signatures.',
   };
 }

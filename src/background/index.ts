@@ -1,6 +1,8 @@
 import { findMatchingRule } from '../core/matching';
 import { normalizeUrl, normalizeMatchingUrl, normalizeDomain, normalizePattern, patternMatches } from '../core/normalization';
 import { migrateState, normalizeRule, validateCustomization } from '../core/rules';
+import { mergeBackup, parseBackup, serializeBackup } from '../core/backups';
+import { backupOverview, disconnectFile, HISTORY_KEY, recordBeforeChange, recoverySnapshots, resetFileStatus, syncFile } from './backups';
 import type { AppState, Customization, Diagnostics, Request, Response, Rule, StoredState, TabState } from '../shared/types';
 
 const STATE_KEY = 'tabmarker.state';
@@ -22,6 +24,11 @@ function safeError(error: unknown): string {
 }
 async function readState(): Promise<StoredState> {
   const raw = (await chrome.storage.local.get(STATE_KEY))[STATE_KEY];
+  if (raw === undefined || raw === null) {
+    const history = (await chrome.storage.local.get(HISTORY_KEY))[HISTORY_KEY];
+    const backup = (await chrome.storage.local.get('tabmarker.backupStatus'))['tabmarker.backupStatus'];
+    if (history !== undefined || backup !== undefined) throw new Error('Saved rules are missing. Restore a recovery copy or import a backup; existing backups have been preserved.');
+  }
   const state = migrateState(raw);
   // Validate before writing. Future or malformed state must never be discarded.
   if (JSON.stringify(raw) !== JSON.stringify(state)) await chrome.storage.local.set({ [STATE_KEY]: state });
@@ -102,9 +109,25 @@ async function reapplyAll(): Promise<void> {
   await Promise.all(tabs.filter(tab => tab.id !== undefined && tab.url && !restrictedReason(tab.url))
     .map(tab => applyTab(tab.id!, state, overrides)));
 }
-async function saveRules(rules: Rule[]): Promise<void> {
-  await chrome.storage.local.set({ [STATE_KEY]: { version: 4, rules } satisfies StoredState });
+async function saveRules(rules: Rule[], explicitRestore = false): Promise<void> {
+  let previous: StoredState;
+  try { previous = await readState(); }
+  catch (error) {
+    if (!explicitRestore) throw error;
+    // Only an explicitly confirmed restore may replace unreadable state. Keep
+    // the original bytes/structure for recovery instead of silently resetting it.
+    const raw = (await chrome.storage.local.get(STATE_KEY))[STATE_KEY];
+    await chrome.storage.local.set({ [STATE_KEY]: { version: 4, rules } satisfies StoredState, 'tabmarker.preservedState': { createdAt: Date.now(), value: raw ?? null } });
+    await reapplyAll();
+    await syncFile({ version: 4, rules });
+    return;
+  }
+  const next = { version: 4, rules } satisfies StoredState;
+  if (JSON.stringify(previous) === JSON.stringify(next)) return;
+  // Persist the previous state and new rules in one operation, before touching a linked file.
+  await chrome.storage.local.set({ [STATE_KEY]: next, [HISTORY_KEY]: await recordBeforeChange(previous) });
   await reapplyAll();
+  await syncFile(next);
 }
 async function editableTab(id: number): Promise<TabState> {
   const tab = (await appState(id)).tab;
@@ -115,6 +138,36 @@ async function editableTab(id: number): Promise<TabState> {
 async function handle(request: Request): Promise<unknown> {
   switch (request.type) {
     case 'GET_STATE': return appState(request.tabId);
+    case 'GET_BACKUPS': {
+      try { return await backupOverview(await readState()); }
+      catch {
+        return { file: { state: 'error', fileName: null, lastSyncedAt: null, message: 'Saved rules cannot be read. Restore a recovery copy or import a backup using Replace all my rules. The unreadable data will be preserved.' }, snapshots: (await recoverySnapshots()).map(item => ({ id: item.id, createdAt: item.createdAt, ruleCount: item.state.rules.length })) };
+      }
+    }
+    case 'EXPORT_BACKUP': return serializeBackup(await readState(), chrome.runtime.getManifest().version);
+    case 'SYNC_BACKUP': {
+      const state = await readState();
+      if (request.newConnection) await resetFileStatus();
+      await syncFile(state, true);
+      return backupOverview(state);
+    }
+    case 'DISCONNECT_BACKUP': {
+      await disconnectFile();
+      return backupOverview(await readState());
+    }
+    case 'IMPORT_BACKUP': {
+      if (request.mode !== 'merge' && request.mode !== 'replace') throw new Error('Choose merge or replace before restoring rules.');
+      const incoming = parseBackup(request.text);
+      const rules = request.mode === 'replace' ? incoming.rules : mergeBackup((await readState()).rules, incoming.rules);
+      await saveRules(rules, request.mode === 'replace');
+      return appState();
+    }
+    case 'RESTORE_SNAPSHOT': {
+      const snapshot = (await recoverySnapshots()).find(item => item.id === request.id);
+      if (!snapshot) throw new Error('That recovery copy is no longer available.');
+      await saveRules(snapshot.state.rules, true);
+      return appState();
+    }
     case 'PREVIEW_PATTERN': {
       const pattern = normalizePattern(request.pattern);
       const tab = await targetTab(request.tabId);
@@ -189,7 +242,23 @@ async function handle(request: Request): Promise<unknown> {
       const tab = await editableTab(request.tabId);
       const safe = await chrome.tabs.sendMessage(tab.id, { type: 'TM_DIAGNOSTICS' }, { frameId: 0 }) as Omit<Diagnostics, 'matchingScope' | 'nativeTabMenu'>;
       // Content diagnostics are deliberately not written to storage or logs.
-      return { ...safe, matchingScope: tab.temporary ? 'tab' : state.rules.find(rule => rule.id === tab.matchedRuleId)?.scope ?? null, nativeTabMenu: state.nativeTabMenu } satisfies Diagnostics;
+      const target = await targetTab(tab.id);
+      const rawUrl = target?.url ?? target?.pendingUrl ?? '';
+      const matchingRules: NonNullable<Diagnostics['matchingRules']> = [];
+      let remaining = state.rules;
+      let rule: Rule | null;
+      while ((rule = findMatchingRule(remaining, rawUrl))) {
+        matchingRules.push({ id: rule.id, scope: rule.scope, selected: !tab.temporary && rule.id === tab.matchedRuleId });
+        remaining = remaining.filter(item => item.id !== rule!.id);
+      }
+      const applied = safe.application;
+      const recommendation = applied && ((applied.titleRequested && !applied.titleApplied) || (applied.iconRequested && !applied.iconLinksApplied))
+        ? 'The page metadata does not match the requested customization. Refresh the page and inspect again; the site may be rewriting it.'
+        : tab.temporary ? 'A temporary tab override takes priority over all saved rules.'
+        : matchingRules.length > 1 ? 'The first rule wins by scope, specificity and update time. Disable it to use the next match.'
+        : matchingRules.length ? 'The matching rule is selected. If only the favicon looks wrong, check the page CSP or browser icon cache.'
+        : 'No enabled rule matches. Use a URL pattern with ?view=… to distinguish additional Autotask screens.';
+      return { ...safe, matchingRules, recommendation, extensionVersion: chrome.runtime.getManifest().version, matchingScope: tab.temporary ? 'tab' : state.rules.find(rule => rule.id === tab.matchedRuleId)?.scope ?? null, nativeTabMenu: state.nativeTabMenu } satisfies Diagnostics;
     }
     default: throw new Error('Unknown TabMarker command.');
   }
@@ -259,12 +328,13 @@ async function initialize(): Promise<void> {
   await createMenu({ id: OPTIONS_MENU, title: 'Manage TabMarker rules…', contexts: ['action'] });
   await chrome.storage.session.set({ [MENU_KEY]: native });
   await readState();
+  await syncFile(await readState());
 }
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === OPTIONS_MENU) { void chrome.runtime.openOptionsPage(); return; }
   if (info.menuItemId === EDIT_MENU && tab?.id !== undefined) {
     // An explicit editor window preserves the context-clicked tab even when it is inactive.
-    void chrome.windows.create({ url: chrome.runtime.getURL(`popup.html?tabId=${tab.id}`), type: 'popup', width: 440, height: 740 });
+    void chrome.windows.create({ url: chrome.runtime.getURL(`popup.html?tabId=${tab.id}`), type: 'popup', width: 420, height: 610 });
   }
 });
 chrome.runtime.onInstalled.addListener(() => { void serial(async () => { await initialize(); await reapplyAll(); }).catch(() => undefined); });

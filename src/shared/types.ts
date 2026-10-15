@@ -45,6 +45,26 @@ export interface Diagnostics {
   matchingScope: RuleScope | 'tab' | null;
   nativeTabMenu: boolean;
   note: string;
+  recognizedView: { id: string; label: string } | null;
+  application?: {
+    titleRequested: boolean;
+    titleApplied: boolean;
+    iconRequested: boolean;
+    iconLinksApplied: boolean;
+  };
+  extensionVersion?: string;
+  matchingRules?: { id: string; scope: RuleScope; selected: boolean }[];
+  recommendation?: string;
+}
+export interface BackupStatus {
+  state: 'off' | 'synced' | 'pending' | 'permission' | 'error';
+  fileName: string | null;
+  lastSyncedAt: number | null;
+  message: string;
+}
+export interface BackupOverview {
+  file: BackupStatus;
+  snapshots: { id: string; createdAt: number; ruleCount: number }[];
 }
 export interface RequestMap {
   GET_STATE: { input: { tabId?: number }; output: AppState };
@@ -61,6 +81,12 @@ export interface RequestMap {
   DELETE_RULE: { input: { id: string }; output: AppState };
   TOGGLE_RULE: { input: { id: string; enabled: boolean }; output: AppState };
   GET_DIAGNOSTICS: { input: { tabId: number }; output: Diagnostics };
+  GET_BACKUPS: { input: Record<never, never>; output: BackupOverview };
+  EXPORT_BACKUP: { input: Record<never, never>; output: string };
+  IMPORT_BACKUP: { input: { text: string; mode: 'merge' | 'replace' }; output: AppState };
+  RESTORE_SNAPSHOT: { input: { id: string }; output: AppState };
+  SYNC_BACKUP: { input: { newConnection?: boolean }; output: BackupOverview };
+  DISCONNECT_BACKUP: { input: Record<never, never>; output: BackupOverview };
 }
 export type Request = {
   [K in keyof RequestMap]: { type: K } & RequestMap[K]['input'];
