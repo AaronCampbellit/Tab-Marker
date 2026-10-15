@@ -1,5 +1,12 @@
 # Validation record
 
+## Rule scope help in 0.4.2 - October 15, 2026
+
+- Production build and TypeScript passed; the existing **209 unit tests passed**. This copy and accessibility-association change adds no matching or persistence behavior.
+- Installed headless Chrome with mocked extension APIs verified each popup scope's help, each settings scope's help, recognized Autotask Exact URL help, and selector/help accessibility associations.
+- At a 390 x 600 viewport, the largest popup (URL pattern with match preview) measured 558.5 px high, with Save ending at 521 px and no horizontal overflow. All four popup states and the narrow settings editor were visually reviewed.
+- Full installed-extension/native toolbar acceptance was not re-run. These UI checks use the actual built pages with mocked Chrome APIs. The temporary browser and local QA server were stopped.
+
 ## Current URL prefill in 0.4.1 - October 15, 2026
 
 Windows local validation: Node 24.16.0, built extension version 0.4.1.

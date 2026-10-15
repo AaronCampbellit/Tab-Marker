@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { request } from '../shared/client';
 import { getAutotaskView } from '../integrations/autotask-routing';
 import type { AppState, BackupOverview, RequestMap, RuleScope } from '../shared/types';
-import { AppearanceFields, appearanceFrom, Brand, customizationFrom, Feedback, SCOPE_LABELS } from './components';
+import { AppearanceFields, appearanceFrom, Brand, customizationFrom, Feedback, ScopeHelp, SCOPE_LABELS } from './components';
 import type { AppearanceForm } from './components';
 import './styles.css';
 
@@ -175,8 +175,8 @@ function Popup() {
       {state && blocked && <div className="panel p-4"><p className="text-sm font-semibold text-slate-800">This page cannot be customized</p><p className="hint">{tab?.unsupportedReason ?? 'Select a regular website tab, then open TabMarker again.'}</p><button className="primary mt-4 w-full" type="button" disabled>Save customization</button></div>}
       {state && !blocked && tab && <form id="customize-form" onSubmit={save}>
         <AppearanceFields compact value={appearance} disabled={busy} onChange={value => { dirty.current = true; setAppearance(value); setSuccess(''); }}/>
-        <div><label className="label" htmlFor="scope">Rule scope</label><select id="scope" className="field" value={scope} disabled={busy} onChange={event => { dirty.current = true; setScope(event.target.value as RuleScope | 'tab'); setSuccess(''); }}>{Object.entries(SCOPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-          <p className="hint">{scope === 'tab' ? 'Temporary. Ends when the tab closes or Chrome restarts.' : scope === 'exact' ? autotaskView ? `Matches this Autotask screen: ${autotaskView.label} (view=${autotaskView.id}).` : 'Matches hostname and path; ignores query parameters.' : scope === 'domain' ? 'All pages on this domain and its subdomains.' : 'Use * in host, path or query values.'}</p>
+        <div><label className="label" htmlFor="scope">Rule scope</label><select id="scope" className="field" value={scope} aria-describedby="scope-help" disabled={busy} onChange={event => { dirty.current = true; setScope(event.target.value as RuleScope | 'tab'); setSuccess(''); }}>{Object.entries(SCOPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+          <ScopeHelp id="scope-help" scope={scope} viewLabel={autotaskView?.label}/>
         </div>
         {scope === 'pattern' && <div>
           <div className="flex items-center justify-between gap-2"><label className="label" htmlFor="pattern">URL pattern</label><button className="text-button text-xs" type="button" disabled={busy || patternLoading} onClick={() => void useCurrentUrl(tab.id)}>{patternLoading ? 'Reading URL…' : 'Use current URL'}</button></div>

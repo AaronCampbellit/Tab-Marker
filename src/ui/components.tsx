@@ -5,6 +5,33 @@ export const SCOPE_LABELS: Record<RuleScope | 'tab', string> = {
   tab: 'This tab only', exact: 'Exact URL', pattern: 'URL pattern', domain: 'Entire domain',
 };
 
+const SCOPE_HELP = {
+  tab: {
+    summary: 'Temporary. Labels this open tab as you browse. Ends when you close the tab, restart Chrome, or reload TabMarker.',
+    example: 'Use for a one-off label. Reopening the page in a new tab will not carry it over.',
+  },
+  exact: {
+    summary: 'Saved for future visits. Labels one website address and page path. Usually ignores everything after ? or #.',
+    example: 'Example: example.com/work matches that page; example.com/other is a different page.',
+  },
+  pattern: {
+    summary: 'Saved for future visits. Labels a group of pages. Use * to match any text in the website name, path, or query values after ?.',
+    example: 'Example: https://example.com/work/* matches pages under /work/. Only query filters included in your pattern are checked.',
+  },
+  domain: {
+    summary: 'Saved for future visits. Labels every page on this website and its subdomains, using either HTTP or HTTPS.',
+    example: 'Example: example.com covers /work, /other, and support.example.com. Use when the whole website should share a label.',
+  },
+} satisfies Record<RuleScope | 'tab', { summary: string; example: string }>;
+
+export function ScopeHelp({ scope, id, viewLabel }: { scope: RuleScope | 'tab'; id: string; viewLabel?: string }) {
+  const help = SCOPE_HELP[scope];
+  return <div id={id} aria-live="polite">
+    <p className="hint">{help.summary}</p>
+    <p className="hint">{scope === 'exact' && viewLabel ? `This recognized Autotask screen is matched separately: ${viewLabel}.` : help.example}</p>
+  </div>;
+}
+
 export interface AppearanceForm {
   title: string;
   keepIcon: boolean;
