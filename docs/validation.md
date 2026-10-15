@@ -1,6 +1,6 @@
 # Validation record
 
-Date: **2026-10-14**. The local extension acceptance checks pass after correcting three test assumptions and a toolbar popup sizing bug, then migrating to Tailwind **4.3.3** to remove the affected build dependency chains. Live Autotask module detection remains unverified.
+Date: **2026-10-14**. The local extension acceptance checks pass after correcting three test assumptions and a toolbar popup sizing bug, then migrating to Tailwind **4.3.3** to remove the affected build dependency chains. Version **0.2.0** now distinguishes the three user-supplied Autotask view routes with synthetic full-extension coverage. Live Autotask application and DOM module validation remain outstanding.
 
 Environment: **ubt-lab**, Linux, Node **24.19.0**, npm **11.17.0**, Playwright **1.64.1**, installed **Google Chrome for Testing 151.0.7922.34**. Browser suites use synthetic local HTTP pages and disposable profiles. Headed Chrome checks ran on a task-specific Xvfb display. No customer application or browser profile was used.
 
@@ -10,9 +10,9 @@ Environment: **ubt-lab**, Linux, Node **24.19.0**, npm **11.17.0**, Playwright *
 | --- | --- | --- |
 | Clean dependency installation | Passed | `npm ci --no-audit --no-fund`; regenerated lockfile verified by a fresh clean install; Tailwind and its official Vite plugin both pinned to **4.3.3** |
 | Production build and TypeScript | Passed | `npm run build` includes `tsc --noEmit`; packaged MV3 manifest, React pages, worker and content script |
-| Vitest | **117 passed, 5 files** | Rule matching, normalization, validation/migration, diagnostic privacy and mocked worker behavior |
+| Vitest | **136 passed, 6 files** | Rule matching, normalization, validation/migration, diagnostic privacy and mocked worker behavior |
 | Chromium content DOM tests | **6 passed** | Built content script in real Chrome documents with only the runtime messaging API mocked |
-| Full-extension browser tests | **10 passed, none skipped** | Real extension installation, worker, Chrome messaging/storage, title/favicon rendering, navigation, persistence, settings and restricted-page behavior |
+| Full-extension browser tests | **13 passed, none skipped** | Real extension installation, worker, Chrome messaging/storage, title/favicon rendering, navigation, persistence, settings and restricted-page behavior |
 | Real toolbar popup | Passed | Opened through Chrome's Extensions toolbar menu; measured viewport and document width **390px**, height **600px**; typed `toolbar qa` and clicked Save; active website title and session override updated |
 | Native tab context menu | Passed on tested browser | Visually observed the actual tab-strip command; clicked it on an inactive tab, saved a temporary customization, and confirmed the inactive tab changed while the active tab retained its original title |
 | Settings visual checks | Passed | Actual extension settings at **1440×900** and **390×844**; document widths do not exceed viewport widths (headed Chrome may reserve 15px for its vertical scrollbar), with no horizontal overflow; create/save/toggle/search and narrow editor checks pass |
@@ -27,7 +27,7 @@ Final suite command:
 CHROMIUM_PATH=/home/acampbell/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome npm run test:all
 ```
 
-This ran **133 tests**, all passing, with production builds/typechecks before both browser suites. Set `CHROMIUM_PATH` to a compatible installed browser on other machines. No new browser installation or managed-policy modification was needed here.
+This ran **155 tests**, all passing, with production builds/typechecks before both browser suites. Set `CHROMIUM_PATH` to a compatible installed browser on other machines. No new browser installation or managed-policy modification was needed here.
 
 ## Corrections discovered by local verification
 
@@ -48,6 +48,16 @@ The stylesheet retains the previous used color palette, shadow sizes, accessible
 
 Independent read-only investigation and candidate review found no surviving affected dependency path or further concrete regression. Full suites passed (**117 unit + 6 content + 10 extension**); after the final placeholder adjustment, build/typecheck and all **10 extension tests** passed again, alongside the final rendered checks. No additional regression tests were added for this build-tool migration; existing functional suites and actual browser geometry/style checks supplied the evidence.
 
+## Autotask view routing in 0.2.0
+
+The user supplied three HTTPS links sharing `/AutotaskOnyx/LandingPage`, distinguished by `view=quote-search`, `view=generate-invoices` and `view=payment-processing-search`. Exact URL matching now preserves only these reviewed values on Autotask hosts. Content messaging, tab updates, rule writes, reapplication and stale-route checks use the same canonical matching URL. Patterns and general exact URLs retain query-insensitive behavior.
+
+Schema **3** preserves new view-specific matches; migration from schemas 1 and 2 retains their path-only exact rule behavior. A view-specific exact match outranks a generic exact landing-page rule. Unknown or ambiguous views are stripped and can use an existing generic fallback. `view-data` is never decoded; credentials, other queries and fragments are excluded from stored addresses.
+
+**19 additional unit cases** cover allowed views, host/path boundaries, duplicate keys, inherited-property names, sanitization, priority and migration. **Three additional real-extension tests** intercept the Autotask host without network access, covering independent popup saves for all three screens, view-specific settings entry, all-screen browser-restart persistence, query-only `pushState`/`replaceState`, fallback/restoration and exclusion of both plaintext and base64 synthetic private data from storage. All **155 tests** pass. The popup and settings were also inspected at narrow and desktop sizes; existing preload warnings remain and no application errors were observed.
+
+MacBook SSH reachability was confirmed, but no Chrome debugging/extension automation bridge was available in this session. Its browser settings and live application were not changed. Verification used the existing local Chrome for Testing browser.
+
 ## What the DOM and extension tests prove
 
 The six content-only checks verify title/favicon replacement and restoration, rendered SVG dimensions and color, observer convergence, reused favicon nodes, whole-head replacement, page-authored metadata on an extension-created icon, and SPA heartbeat URL sanitization. Their mocked runtime does not independently establish extension loading or storage behavior.
@@ -61,10 +71,10 @@ The native command was additionally exercised through the rendered Chrome menu. 
 - These results cover Chrome for Testing **151** on Linux. Chrome **120** is the declared baseline, but that version, other operating systems, incognito, enterprise policies and user-withheld site access were not exercised here. Verify native menu availability in each intended browser; toolbar fallback remains available.
 - Forced worker stop/restart was verified. Natural idle suspension was not independently tested; debugger/automation attachment can affect lifetime.
 - The restart test reopens a matching address in the same profile. It does not verify Chrome restoring a previously open or discarded tab session automatically.
-- Live Autotask routes, iframe modules and module signatures remain unverified. `APPROVED_AUTOTASK_ADAPTERS` stays empty. Follow [the live-test guide](autotask-testing.md) with an approved sample-data account before adding adapters.
+- The three supplied Autotask view routes are synthetically verified; live application behavior, additional routes, iframe modules and DOM module signatures remain unverified. `APPROVED_AUTOTASK_ADAPTERS` stays empty. Follow [the live-test guide](autotask-testing.md) with an approved sample-data account before adding adapters.
 - Strict website CSP, favicon caches and browser-managed surfaces can still affect the visible favicon, as documented in the README.
 
-Current Tailwind 4 visual evidence is in `/tmp/tabmarker-tailwind4/`: `toolbar-final.png`, `settings-desktop.png`, `settings-narrow.png` and `settings-editor-narrow.png`. Earlier local-installation evidence is in `/tmp/tabmarker-verification/`, including `toolbar-popup-after.png`, `background-tab-menu.png`, `background-editor.png`, `settings-desktop.png` and `settings-narrow.png`. Temporary evidence is not committed and may be cleared by the host.
+Autotask 0.2.0 visual evidence is in `/tmp/tabmarker-autotask-qa/`. Earlier Tailwind 4 visual evidence is in `/tmp/tabmarker-tailwind4/`: `toolbar-final.png`, `settings-desktop.png`, `settings-narrow.png` and `settings-editor-narrow.png`. Earlier local-installation evidence is in `/tmp/tabmarker-verification/`, including `toolbar-popup-after.png`, `background-tab-menu.png`, `background-editor.png`, `settings-desktop.png` and `settings-narrow.png`. Temporary evidence is not committed and may be cleared by the host.
 
 ## Historical cloud attempt
 

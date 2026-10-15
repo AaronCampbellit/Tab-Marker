@@ -126,7 +126,7 @@ describe('real background module with mocked Chrome API boundaries', () => {
     })));
     const result = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
     expect(result.rules.map(item => item.id).sort()).toEqual(Array.from({ length: 12 }, (_, index) => `rule-${index}`).sort());
-    expect(browser.local[STATE_KEY]).toEqual({ version: 2, rules: result.rules });
+    expect(browser.local[STATE_KEY]).toEqual({ version: 3, rules: result.rules });
     expect(browser.api.storage.local.setAccessLevel).toHaveBeenCalledWith({ accessLevel: 'TRUSTED_CONTEXTS' });
     expect(result.nativeTabMenu).toBe(false);
   });
@@ -136,7 +136,7 @@ describe('real background module with mocked Chrome API boundaries', () => {
     await browser.load();
     const migrated = await browser.request({ type: 'GET_STATE', tabId: browser.tab.id });
     expect(migrated.rules[0].icon).toEqual({ color: '#123456', glyph: 'L' });
-    expect(browser.local[STATE_KEY]).toEqual({ version: 2, rules: migrated.rules });
+    expect(browser.local[STATE_KEY]).toEqual({ version: 3, rules: migrated.rules });
     const future = { version: 9, rules: [{ futureData: 'preserve me' }] };
     browser.local[STATE_KEY] = structuredClone(future);
     const rejected = await browser.send({ type: 'UPSERT_RULE', rule: rule('new') });

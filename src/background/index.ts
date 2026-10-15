@@ -1,5 +1,5 @@
 import { findMatchingRule } from '../core/matching';
-import { normalizeUrl, normalizeDomain } from '../core/normalization';
+import { normalizeUrl, normalizeMatchingUrl, normalizeDomain } from '../core/normalization';
 import { migrateState, normalizeRule, validateCustomization } from '../core/rules';
 import type { AppState, Customization, Diagnostics, Request, Response, Rule, StoredState, TabState } from '../shared/types';
 
@@ -71,7 +71,7 @@ async function getTabState(state: StoredState, overrides: Overrides, id?: number
       unsupportedReason = 'TabMarker cannot access this page. Refresh it after installing, allow site access in Chrome, or check whether it is a protected PDF/viewer.';
     }
   }
-  const url = normalizeUrl(rawUrl ?? '') ?? '';
+  const url = normalizeMatchingUrl(rawUrl ?? '') ?? '';
   const selected = select(state, overrides, tab.id, url);
   return { id: tab.id, url, unsupportedReason, customization: selected.customization, matchedRuleId: selected.rule?.id ?? null, temporary: selected.temporary };
 }
@@ -95,10 +95,10 @@ async function reapplyAll(): Promise<void> {
   const overrides = await readOverrides();
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.filter(tab => tab.id !== undefined && tab.url && !restrictedReason(tab.url))
-    .map(tab => applyTab(tab.id!, normalizeUrl(tab.url!)!, state, overrides)));
+    .map(tab => applyTab(tab.id!, normalizeMatchingUrl(tab.url!)!, state, overrides)));
 }
 async function saveRules(rules: Rule[]): Promise<void> {
-  await chrome.storage.local.set({ [STATE_KEY]: { version: 2, rules } satisfies StoredState });
+  await chrome.storage.local.set({ [STATE_KEY]: { version: 3, rules } satisfies StoredState });
   await reapplyAll();
 }
 async function editableTab(id: number): Promise<TabState> {
@@ -185,7 +185,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   const typed = message as Record<string, unknown>;
   if (typed.type === 'TM_READY') {
     if (sender.id !== chrome.runtime.id || sender.tab?.id === undefined || sender.frameId !== 0) return false;
-    const url = typeof typed.url === 'string' ? normalizeUrl(typed.url) : null;
+    const url = typeof typed.url === 'string' ? normalizeMatchingUrl(typed.url) : null;
     if (!url) return false;
     void serial(async () => {
       const selected = select(await readState(), await readOverrides(), sender.tab!.id!, url);
@@ -209,7 +209,7 @@ chrome.tabs.onRemoved.addListener(id => {
 });
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
   if ((change.status === 'complete' || change.url) && tab.url && !restrictedReason(tab.url)) {
-    void serial(() => applyTab(id, normalizeUrl(tab.url!)!)).catch(() => undefined);
+    void serial(() => applyTab(id, normalizeMatchingUrl(tab.url!)!)).catch(() => undefined);
   }
 });
 // Handles explicit settings changes as well as another trusted extension view.

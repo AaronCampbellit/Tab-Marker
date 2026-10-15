@@ -2,6 +2,8 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { FormEvent } from 'react';
 import { request } from '../shared/client';
+import { normalizeUrl } from '../core/normalization';
+import { getAutotaskView } from '../integrations/autotask-routing';
 import type { AppState, Diagnostics, RuleScope } from '../shared/types';
 import { AppearanceFields, appearanceFrom, Brand, customizationFrom, Feedback, SCOPE_LABELS } from './components';
 import type { AppearanceForm } from './components';
@@ -33,8 +35,8 @@ function Popup() {
       dirty.current = false;
       setAppearance(appearanceFrom(tab.customization));
       const rule = next.rules.find(item => item.id === tab.matchedRuleId);
-      setScope(tab.temporary ? 'tab' : rule?.scope ?? 'tab');
-      setPattern(rule?.scope === 'pattern' ? rule.match : `${tab.url}*`);
+      setScope(tab.temporary ? 'tab' : rule?.scope ?? (getAutotaskView(tab.url) ? 'exact' : 'tab'));
+      setPattern(rule?.scope === 'pattern' ? rule.match : `${normalizeUrl(tab.url) ?? tab.url}*`);
     }
   }, []);
 
@@ -90,6 +92,7 @@ function Popup() {
   }
 
   const tab = state?.tab;
+  const autotaskView = tab ? getAutotaskView(tab.url) : null;
   const blocked = !tab || !!tab.unsupportedReason;
   return <main className="popup-shell p-5">
     <Brand compact subtitle="A little clarity in every tab."/>
@@ -102,10 +105,10 @@ function Popup() {
         <form id="customize-form" onSubmit={save} className="space-y-5">
           <AppearanceFields value={appearance} disabled={busy} onChange={value => { dirty.current = true; setAppearance(value); setSuccess(''); }}/>
           <div><label className="label" htmlFor="scope">Rule scope</label><select id="scope" className="field" value={scope} disabled={busy} onChange={event => { dirty.current = true; setScope(event.target.value as RuleScope | 'tab'); setSuccess(''); }}>{Object.entries(SCOPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-            <p className="hint">{scope === 'tab' ? 'Follows this tab through navigation. Ends when you close the tab or restart Chrome.' : scope === 'exact' ? 'Matches this exact hostname and path. Query parameters and fragments are ignored.' : scope === 'domain' ? 'Applies to every path on this hostname and its subdomains, using HTTP or HTTPS.' : 'Use * for any characters in the hostname or path. Query parameters and fragments are ignored.'}</p>
+            <p className="hint">{scope === 'tab' ? 'Follows this tab through navigation. Ends when you close the tab or restart Chrome.' : scope === 'exact' ? autotaskView ? `Matches this Autotask screen: ${autotaskView.label} (view=${autotaskView.id}). Other query parameters and fragments are ignored.` : 'Matches this exact hostname and path. Query parameters and fragments are ignored.' : scope === 'domain' ? 'Applies to every path on this hostname and its subdomains, using HTTP or HTTPS.' : 'Use * for any characters in the hostname or path. Query parameters and fragments are ignored.'}</p>
           </div>
           {scope === 'pattern' && <div><label className="label" htmlFor="pattern">URL pattern</label><input id="pattern" className="field font-mono text-xs" type="text" required value={pattern} disabled={busy} onChange={event => { dirty.current = true; setPattern(event.target.value); }} placeholder="https://example.com/work/*" spellCheck={false}/></div>}
-          {scope !== 'tab' && <p className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-500">Saved locally in Chrome. Address rules store hostname and path only; query values and page contents are never saved. Avoid paths containing customer information.</p>}
+          {scope !== 'tab' && <p className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-500">Saved locally in Chrome. Address rules store hostname and path, plus the recognized Autotask view for exact rules. Encoded view-data, other query values and page contents are never saved. Avoid paths containing customer information.</p>}
         </form>
         {tab.customization && <div className="border-t border-slate-200 pt-3"><button type="button" className="text-button text-rose-600 hover:text-rose-800" disabled={busy} onClick={() => void remove()}>Remove applied customization</button><p className="hint">{tab.temporary ? 'Removes this tab’s temporary override.' : 'Deletes the active persistent rule for every matching tab.'} A lower-priority rule may then apply.</p></div>}
         <details className="border-t border-slate-200 pt-3"><summary className="cursor-pointer text-xs font-semibold text-slate-500">Module diagnostics</summary><p className="hint mt-3">Generate a safe summary with no raw URLs, page titles, query values, customer content, or authentication tokens. Nothing is saved or sent.</p><button className="secondary mt-3 w-full text-xs" disabled={busy} type="button" onClick={() => void inspect()}>Generate safe diagnostic summary</button>{diagnostics && <><pre className="mt-3 max-h-48 overflow-auto rounded-xl bg-slate-900 p-3 text-[10px] leading-relaxed text-slate-100" tabIndex={0} aria-label="Safe diagnostic summary">{JSON.stringify(diagnostics, null, 2)}</pre><button className="text-button mt-2 text-xs" type="button" onClick={() => void copyDiagnostics()}>Copy safe diagnostic summary</button></>}</details>

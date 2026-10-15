@@ -1,5 +1,5 @@
 import { createFavicon } from '../core/favicon';
-import { normalizeUrl } from '../core/normalization';
+import { normalizeMatchingUrl } from '../core/normalization';
 import { getPageDiagnostics } from '../integrations/autotask';
 import type { ContentMessage, Customization, Response } from '../shared/types';
 
@@ -160,7 +160,7 @@ function setCustomization(next: Customization | null): void {
   scheduleRepair();
 }
 async function synchronize(): Promise<void> {
-  const url = normalizeUrl(location.href);
+  const url = normalizeMatchingUrl(location.href);
   if (!url || disposed || !supported) return;
   lastUrl = location.href;
   responseFailed = false;
@@ -196,7 +196,7 @@ chrome.runtime.onMessage.addListener((message: ContentMessage | { type: 'TM_PING
   if (message.type === 'TM_APPLY') {
     // Invalidate any older in-flight navigation response, then verify the current route.
     ++requestSequence;
-    if (location.href !== lastUrl || normalizeUrl(location.href) !== message.url) void synchronize();
+    if (location.href !== lastUrl || normalizeMatchingUrl(location.href) !== message.url) void synchronize();
     else setCustomization(message.customization);
     sendResponse({ ok: true });
   } else if (message.type === 'TM_DIAGNOSTICS') {

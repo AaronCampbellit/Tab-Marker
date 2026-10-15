@@ -1,4 +1,6 @@
-/** URL matching deliberately excludes query strings and fragments. */
+import { getAutotaskView } from '../integrations/autotask-routing';
+
+/** General URL matching excludes query strings and fragments. */
 const FORBIDDEN_URL_CHARACTERS = /[\u0000-\u0020\u007f\\]/;
 
 function canonicalHostname(hostname: string): string {
@@ -23,6 +25,17 @@ export function normalizeUrl(input: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Only reviewed Autotask screen identifiers may survive query sanitization. */
+export function normalizeMatchingUrl(input: string): string | null {
+  const normalized = normalizeUrl(input);
+  if (!normalized) return null;
+  const view = getAutotaskView(input);
+  if (!view) return normalized;
+  const url = new URL(normalized);
+  url.searchParams.set('view', view.id);
+  return url.href;
 }
 
 /** Domains are hostnames, never origins: a domain rule includes every port. */

@@ -55,24 +55,24 @@ describe('strict rules and safe migration', () => {
   ])('rejects invalid rule fields %#', invalid => {
     expect(() => normalizeRule({ ...valid, ...invalid })).toThrow();
   });
-  it('uses an empty v2 state only for absent storage', () => {
-    expect(migrateState(undefined)).toEqual({ version: 2, rules: [] });
-    expect(migrateState(null)).toEqual({ version: 2, rules: [] });
+  it('uses an empty v3 state only for absent storage', () => {
+    expect(migrateState(undefined)).toEqual({ version: 3, rules: [] });
+    expect(migrateState(null)).toEqual({ version: 3, rules: [] });
     expect(() => migrateState({})).toThrow();
   });
   it('supports the explicit v1 letter-to-glyph migration without mutating stored input', () => {
     const legacy = { version: 1, rules: [{ ...valid, icon: { color: '#123456', letter: 'T' } }] };
     const migrated = migrateState(legacy);
-    expect(migrated.version).toBe(2);
+    expect(migrated.version).toBe(3);
     expect(migrated.rules[0].icon).toEqual({ color: '#123456', glyph: 'T' });
     expect(legacy.rules[0].icon).toEqual({ color: '#123456', letter: 'T' });
   });
-  it('normalizes an existing v2 state idempotently', () => {
+  it('migrates an existing v2 state and normalizes v3 idempotently', () => {
     const state = migrateState({ version: 2, rules: [valid] });
     expect(migrateState(state)).toEqual(state);
   });
   it.each([
-    { version: 3, rules: [] }, { version: 2, rules: 'broken' }, { version: 2, rules: [valid, valid] },
+    { version: 4, rules: [] }, { version: 2, rules: 'broken' }, { version: 2, rules: [valid, valid] },
     { version: 1, rules: [{ ...valid, icon: { letter: 'T' } }] }, { version: 2, rules: [{ ...valid, title: 123 }] },
   ])('rejects malformed or future data instead of silently dropping it %#', value => {
     const original = structuredClone(value);

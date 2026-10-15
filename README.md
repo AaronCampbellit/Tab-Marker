@@ -2,7 +2,7 @@
 
 TabMarker is a local-first Chrome Manifest V3 extension for custom tab titles and highly visible colored SVG favicons. Use a temporary customization for one tab, or save a rule that reapplies when a matching page opens. It is designed for repeated web application tabs, including future verified Autotask PSA module detection.
 
-There is no backend, account, external API, telemetry, or remote asset dependency. Rules remain in this Chrome profile. Autotask module signatures are deliberately empty until tested against the live application. Local verification passed all **133 tests**, including real extension loading, browser/worker restart behavior, the toolbar popup and native inactive-tab menu editing on Chrome for Testing 151. See [validation](docs/validation.md) for evidence and the unverified live Autotask scope. Both production and development dependency audits are clean after the Tailwind 4 migration.
+There is no backend, account, external API, telemetry, or remote asset dependency. Rules remain in this Chrome profile. Exact URL rules distinguish the reviewed Autotask landing-page views for Quote search, Generate invoices and Payment processing. Optional DOM module signatures remain empty until live validation. Local verification passed all **155 tests**, including real extension loading, browser/worker restart behavior, the toolbar popup and native inactive-tab menu editing on Chrome for Testing 151. See [validation](docs/validation.md) for evidence and the unverified live Autotask scope. Both production and development dependency audits are clean after the Tailwind 4 migration.
 
 ## Build and install
 
@@ -38,7 +38,7 @@ Set a title, an icon, or both. Icons use a six-digit hex color and one visible l
 | Scope | Matches | Lifetime |
 | --- | --- | --- |
 | This tab | The current numeric Chrome tab ID, including subsequent supported navigation | Until the tab closes, extension reloads, or the browser fully exits |
-| Exact URL | Normalized scheme, hostname, port and path | Saved locally across tab reopening and browser restart |
+| Exact URL | Normalized scheme, hostname, port and path; recognized Autotask screens also match `view` | Saved locally across tab reopening and browser restart |
 | URL pattern | An explicit HTTP(S) wildcard pattern | Saved locally across tab reopening and browser restart |
 | Domain | Hostname and its subdomains, on HTTP or HTTPS and any port | Saved locally across tab reopening and browser restart |
 
@@ -57,9 +57,17 @@ The winner is deterministic:
 
 Rules apply as a whole; a title from one rule and an icon from another are not merged. More recent domain rules do not override an exact URL rule.
 
-Exact URLs are normalized to lowercase hostnames, without credentials, query strings, or fragments. URL parsing removes default ports; path case and trailing slashes remain significant. Patterns reject queries and fragments. **Two pages distinguished only by query or hash share the same matching address.** This is an intentional privacy tradeoff and a known limitation for some application modules. No unverified Autotask route or query value is hardcoded.
+Exact URLs are normalized to lowercase hostnames, without credentials or fragments. URL parsing removes default ports; path case and trailing slashes remain significant. General query parameters are ignored. The reviewed Autotask `view` exception below keeps only a recognized screen identifier. Patterns remain query-insensitive and reject queries in the pattern itself. Other pages distinguished only by query or hash still share a matching address.
 
 Saved addresses can still contain a hostname and path, and custom titles contain what the user enters. Avoid creating rules from paths or entering labels that contain confidential information. TabMarker does not collect page contents, page-authored titles, authentication tokens, or sensitive query values into rule storage.
+
+### Autotask screens
+
+On `autotask.net` or its subdomains at `/AutotaskOnyx/LandingPage`, **Exact URL** distinguishes `view=quote-search`, `view=generate-invoices` and `view=payment-processing-search`. The popup names the recognized screen and defaults to Exact URL when no customization applies. Choose your title/icon and save. In settings, paste the full Autotask link into an Exact URL rule; only the hostname, path and reviewed `view` value are retained.
+
+`view-data` is neither decoded nor stored. Other query values and fragments are removed. A screen-specific exact rule wins over an older exact rule for the shared landing page; the older rule remains a fallback for other screens. Query-only SPA navigation re-evaluates the screen. These three signatures come from user-supplied links and synthetic browser verification; additional views, direct inner routes and iframe identification require separate review and live validation.
+
+To update an unpacked installation while retaining its rules, replace the files in the existing extension folder, click **Reload** at `chrome://extensions`, and refresh Autotask tabs. Version **0.2.0** migrates existing rules without changing their path-only behavior.
 
 ## Native tab menu and toolbar fallback
 
@@ -80,7 +88,7 @@ The installed extension uses Chrome 120 as its baseline. A native tab-menu comma
 | `tests/unit/`, `tests/browser/` | Vitest logic checks and Playwright tests loading the built extension |
 | `public/manifest.json` | Minimal extension permissions, HTTP(S) content-script registration and packaged assets |
 
-Persistent rules use versioned schema **2** in `chrome.storage.local`. Schema 1 is validated and migrated, including the earlier icon `letter` field. Unknown future versions, corrupt records, and duplicate IDs are rejected while preserving the stored data. Temporary overrides use `chrome.storage.session`; worker memory is disposable. A worker wake loads the state it needs, so idle suspension does not erase saved rules or session overrides.
+Persistent rules use versioned schema **3** in `chrome.storage.local`. Schemas 1 and 2 are validated and migrated, preserving their query-insensitive exact matches; schema 1 also migrates the earlier icon `letter` field. Older extension releases reject schema 3 instead of silently stripping view distinctions. Unknown future versions, corrupt records, and duplicate IDs are rejected while preserving the stored data. Temporary overrides use `chrome.storage.session`; worker memory is disposable. A worker wake loads the state it needs, so idle suspension does not erase saved rules or session overrides.
 
 The content script changes `document.title` and favicon `<link>` elements. It remembers original/page-authored metadata for the current document, recognizes its own writes, and debounces page mutations. If the page rewrites a customized title/icon, TabMarker reapplies the winner without repeatedly writing identical values. When customization ends, the latest observed page-authored title and original favicon elements/attributes are restored. Page code that continuously fights metadata can still cause bounded corrective work and visible churn; this extension cannot control the application.
 

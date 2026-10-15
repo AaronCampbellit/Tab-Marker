@@ -1,6 +1,22 @@
 # Autotask module testing
 
-The MVP applies ordinary URL/domain rules to accessible Autotask pages. It does **not** claim verified Autotask module detection. `APPROVED_AUTOTASK_ADAPTERS` in `src/integrations/autotask.ts` is empty, so no module routes or DOM identifiers have been guessed.
+Version 0.2.0 matches the reviewed landing-page views below in addition to ordinary URL/domain rules. This does **not** claim live Autotask or DOM module validation. `APPROVED_AUTOTASK_ADAPTERS` in `src/integrations/autotask.ts` is empty, so no module routes or DOM identifiers have been guessed.
+
+## Reviewed landing-page views
+
+The user supplied links on `ww5.autotask.net/AutotaskOnyx/LandingPage` with these routing values:
+
+| View | Screen |
+| --- | --- |
+| `quote-search` | Quote search |
+| `generate-invoices` | Generate invoices |
+| `payment-processing-search` | Payment processing |
+
+The pure helper in `src/integrations/autotask-routing.ts` recognizes only these static values on the exact landing-page path and `autotask.net` or dot-delimited subdomains. Duplicate or differently cased view keys, unreviewed values, lookalike domains and other paths do not receive an exception. The extension never decodes `view-data`.
+
+Use **Exact URL** in the popup, or paste a full link into an Exact URL rule in settings. Only the reviewed `view` survives sanitization. Screen-specific exact matches outrank path-only exact matches. Existing rules are migrated to schema 3 with their original query-insensitive meaning. Version 0.1.0 cannot read this new schema and will preserve it instead of overwriting it.
+
+Synthetic full-extension tests intercept every request to the example Autotask host. They prove independent matching for all three views, query-only `pushState`/`replaceState`, settings full-link sanitization, legacy fallbacks, storage privacy and browser-restart persistence. They do not load the real Autotask application. Additional view values must be reviewed before adding them to the static map.
 
 ## On-demand diagnostic mode
 
@@ -25,7 +41,7 @@ It excludes raw URLs, hostname/path strings, credentials, query values, fragment
 5. Start with temporary overrides or broad non-sensitive patterns in the test profile. Check title/icon visibility, full navigation, SPA transitions, new-tab links, duplicate/reopened tabs, browser restart, removal/restoration, and restricted or withheld site access.
 6. If a stable signature is found, review it explicitly before adding an adapter. Add representative synthetic fixtures and unit tests, then repeat live testing. Record Chrome version, deployment region, module name, sanitized expected behavior and observed behavior.
 
-Do not add an adapter based only on a path category, a module title guessed from page text, a record ID, a customer name, or a token-bearing query string. The current rule engine ignores all queries and fragments; two modules sharing a pathname require a reviewed future integration if no safe stable path or DOM signal distinguishes them.
+Do not add an adapter based only on a path category, a module title guessed from page text, a record ID, a customer name, or a token-bearing query string. The rule engine retains only the reviewed landing-page view values above; all other queries and fragments remain ignored. Additional modules sharing a pathname require a separately reviewed routing exception or DOM signature.
 
 ## Adapter contract
 
@@ -42,7 +58,7 @@ Path alternatives use “any”; an adapter's required DOM signals use “all”
 | --- | --- |
 | Which exact Autotask deployment domains and regions are in use? | Verify hostname classification and site access without guessing aliases. |
 | Which initial modules need distinct labels/icons, and do they have stable pathnames? | Define useful, reviewable route adapters. |
-| Are modules differentiated only by a query or fragment? Which routing keys/values are explicitly non-sensitive and stable? | Current query/hash-insensitive matching cannot distinguish them. Any future exception needs an explicit privacy contract. |
+| Are modules differentiated only by a query or fragment? Which routing keys/values are explicitly non-sensitive and stable? | The three reviewed view values are supported. Additional keys/values or hash routes need a separate privacy contract and verification. |
 | Does module identity live in the top document, same-origin iframe, or cross-origin iframe? | The MVP customizes and diagnoses the top document only. |
 | Are there stable non-sensitive element IDs or `data-*` presence markers unique to each module? | Enable approved boolean DOM probes without reading customer content. |
 | Do modules use full navigation, `pushState`, `replaceState`, popup windows, or links opening new tabs? | Verify reapplication and latency in actual workflows. |

@@ -1,5 +1,5 @@
 import type { Customization, Rule, StoredState } from '../shared/types';
-import { normalizeDomain, normalizePattern, normalizeUrl } from './normalization';
+import { normalizeDomain, normalizeMatchingUrl, normalizePattern, normalizeUrl } from './normalization';
 import { validateIcon } from './icon';
 
 const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
@@ -33,7 +33,7 @@ export function normalizeRule(value: unknown): Rule {
   if (rule.scope !== 'exact' && rule.scope !== 'pattern' && rule.scope !== 'domain') throw new Error('Unknown rule scope.');
   if (typeof rule.match !== 'string' || rule.match.length > 4096) throw new Error('A rule needs a matching URL, pattern, or domain of at most 4096 characters.');
   let match: string | null;
-  if (rule.scope === 'exact') match = normalizeUrl(rule.match);
+  if (rule.scope === 'exact') match = normalizeMatchingUrl(rule.match);
   else if (rule.scope === 'pattern') match = normalizePattern(rule.match);
   else match = normalizeDomain(rule.match);
   if (!match) throw new Error('Exact rules require an HTTP or HTTPS URL.');
@@ -53,28 +53,31 @@ export function normalizeRule(value: unknown): Rule {
 
 /** Never reset corrupt or newer data: callers can report the error and preserve it. */
 export function migrateState(value: unknown): StoredState {
-  if (value === null || value === undefined) return { version: 2, rules: [] };
+  if (value === null || value === undefined) return { version: 3, rules: [] };
   const state = object(value, 'Saved state');
-  if (state.version !== 1 && state.version !== 2) {
+  if (state.version !== 1 && state.version !== 2 && state.version !== 3) {
     throw new Error('This saved data uses an unsupported schema version. It has been preserved.');
   }
   if (!Array.isArray(state.rules)) throw new Error('Saved rules are invalid. The saved data has been preserved.');
   const rules = state.rules.map(value => {
-    if (state.version === 2) return normalizeRule(value);
+    if (state.version === 3) return normalizeRule(value);
     const legacy = object(value, 'Legacy rule');
     let icon = legacy.icon;
-    if (icon !== null && typeof icon === 'object' && !Array.isArray(icon)) {
+    if (state.version === 1 && icon !== null && typeof icon === 'object' && !Array.isArray(icon)) {
       const legacyIcon = icon as Record<string, unknown>;
       if (typeof legacyIcon.letter === 'string' && legacyIcon.glyph === undefined) {
         icon = { color: legacyIcon.color, glyph: legacyIcon.letter };
       }
     }
-    return normalizeRule({ ...legacy, icon });
+    // Earlier versions always ignored queries. Preserve their path-only behavior.
+    const match = legacy.scope === 'exact' && typeof legacy.match === 'string'
+      ? normalizeUrl(legacy.match) : legacy.match;
+    return normalizeRule({ ...legacy, match, icon });
   });
   if (new Set(rules.map(rule => rule.id)).size !== rules.length) {
     throw new Error('Saved rules contain duplicate identifiers. The saved data has been preserved.');
   }
-  return { version: 2, rules };
+  return { version: 3, rules };
 }
 
 export { createFavicon } from './favicon';

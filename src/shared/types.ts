@@ -16,12 +16,12 @@ export interface Rule extends Customization {
   updatedAt: number;
 }
 export interface StoredState {
-  version: 2;
+  version: 3;
   rules: Rule[];
 }
 export interface TabState {
   id: number;
-  /** Sanitized URL: credentials, query, and hash removed. Never a page title. */
+  /** Sanitized URL; only reviewed Autotask view values survive. Never a page title. */
   url: string;
   unsupportedReason: string | null;
   customization: Customization | null;
