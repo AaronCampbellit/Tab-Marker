@@ -1,5 +1,7 @@
 # Validation record
 
+For 0.4.4–0.5.0 deployment/helper evidence and the subsequently reported unsigned-download setup failure, see [release history and known gaps](RELEASE-HISTORY.md#validation-and-known-gaps). The earlier results below remain historical and do not establish acceptance of the newer helper setup path.
+
 ## Default scope in 0.4.3 - October 15, 2026
 
 - Production build and TypeScript passed.

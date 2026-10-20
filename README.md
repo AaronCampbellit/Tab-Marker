@@ -1,5 +1,14 @@
 # TabMarker
 
+## Start here
+
+- [Documentation index](docs/README.md): user guides, updater operations, design decisions, signing options and release evidence.
+- [Install in Chrome](docs/INSTALL-CHROME.md) and [quick start](docs/QUICK-START.md).
+- [Brainstorming and decisions](docs/DESIGN-DECISIONS.md): what shipped, alternatives discussed and remaining work.
+- [Helper signing issue and distribution options](docs/SIGNING-AND-DISTRIBUTION.md).
+
+The latest published release verified on October 20, 2026 is [0.5.0](https://github.com/AaronCampbellit/Tab-Marker/releases/tag/v0.5.0), a version-only release for testing updates from 0.4.9. The downloaded helper installer is currently unsigned and can be blocked by PowerShell policy. The ZIP/batch setup improves convenience but does not resolve signing. See the signing document before rolling out helper setup.
+
 ## 0.4.9: download, extract, double-click
 
 **Manage rules → Updates → Install helper** now downloads `TabMarker-Helper-Setup.zip` containing a batch launcher and the personalized PowerShell installer. Choose **Extract All**, double-click **Install TabMarker Helper.cmd**, then return to Settings; connection is checked automatically. No PowerShell command to copy. Binary ZIP download handling and fixed archive filenames fix the earlier `.ps1` download appearing as `.txt`. The launcher follows existing policy and keeps its window open for feedback. See [helper setup](docs/HELPER-UPDATES.md).

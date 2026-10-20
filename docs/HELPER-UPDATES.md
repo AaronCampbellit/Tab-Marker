@@ -2,6 +2,10 @@
 
 TabMarker checks its public GitHub repository for completed stable releases. On Windows, a separately installed native helper can update the existing unpacked folder. The first setup is a download-and-run step: Chrome cannot launch the bundled installer itself.
 
+**Known setup issue:** the currently released helper installer is unsigned. A downloaded/extracted copy was blocked by Windows PowerShell before setup could run, because it was not digitally signed. The ZIP/batch launcher does not resolve that requirement. Use the normal IT approval process on affected devices; see [signing options and the proposed packaging redesign](SIGNING-AND-DISTRIBUTION.md). Signing has not been implemented, and a pre-execution block cannot produce a setup log.
+
+See the [documentation index](README.md), [design decisions](DESIGN-DECISIONS.md) and [release verification record](RELEASE-HISTORY.md) for discussion context and remaining pilot checks.
+
 ## Set up once
 
 Use **0.4.9 or later** for this simpler setup. Existing users can use the pinned RMM launcher or their already-connected helper to update, then reload TabMarker.

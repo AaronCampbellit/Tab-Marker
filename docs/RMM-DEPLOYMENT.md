@@ -2,6 +2,8 @@
 
 This package updates **existing unpacked installations** on Windows using Windows PowerShell 5.1 or later. It does not install the extension into new Chrome profiles, enable Developer mode, or change browser policy. Run through your RMM's normal approved PowerShell execution process. Start with one pilot device.
 
+For a manual bootstrap command and the 0.4.9-to-0.5.0 test, see [release history](RELEASE-HISTORY.md#manual-bootstrap-and-test-sequence). Downloaded scripts can be blocked before startup by signing policy, in which case there is no script-generated log; see [signing and distribution](SIGNING-AND-DISTRIBUTION.md). The [design record](DESIGN-DECISIONS.md) captures the RMM/helper alternatives and cleanup tradeoffs.
+
 ## Quick deployment
 
 Version 0.4.8 also bundles a per-user Windows native-helper installer and adds **Manage rules → Updates** for GitHub checks and user-requested updates. The initial helper setup must be downloaded and run by the Chrome user; it cannot be launched by the extension. See [helper setup](HELPER-UPDATES.md). Existing RMM deployment remains available for the initial upgrade and administrator-owned/all-user installations. The helper uses `-OnlyExtensionId` to restrict this updater to the calling installation; that parameter cannot be combined with explicit `-ExtensionPath` overrides.

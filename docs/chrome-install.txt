@@ -1,0 +1,37 @@
+INSTALL TABMARKER IN CHROME
+
+Start with the ready-to-install TabMarker ZIP file you were given.
+
+1. UNZIP IT
+   Right-click the ZIP file and click Extract All.
+   Click Browse, choose Documents, then click Select Folder and Extract.
+
+2. OPEN CHROME'S EXTENSIONS PAGE
+   Open Chrome. Type chrome://extensions in the address bar at the top
+   and press Enter.
+
+3. TURN ON DEVELOPER MODE
+   Turn on Developer mode in the top-right corner.
+
+4. CLICK LOAD UNPACKED
+   This button appears near the top-left corner.
+
+5. CHOOSE THE EXTENSION FOLDER
+   Go to Documents and open the extracted TabMarker folder.
+   Find the folder with manifest.json directly inside it.
+   With that folder open, click Select Folder.
+   Choose the whole folder, not the ZIP or an individual file.
+
+6. PIN TABMARKER
+   Click the puzzle-piece Extensions button near Chrome's top-right
+   corner. Click the pin next to TabMarker.
+
+7. START USING IT
+   Refresh the website tab you want to customize, then click the
+   TabMarker icon in Chrome's toolbar.
+
+KEEP THE EXTRACTED FOLDER IN DOCUMENTS. Chrome uses those files to run
+the extension. Do not move or delete that folder after installation.
+
+If Chrome says the manifest is missing, check inside the extracted
+folder for another folder containing manifest.json and select that one.
