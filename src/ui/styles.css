@@ -59,7 +59,7 @@
 /* Give Chrome's toolbar popup an intrinsic width before its first layout.
    A viewport-constrained child alone can lock it to Chrome's initial ~200px. */
 .popup-document:not(.editor-window) { width: 390px; }
-.popup-shell { display: flex; flex-direction: column; width: 390px; max-width: 100vw; padding: 14px; gap: 12px; }
+.popup-shell { display: flex; flex-direction: column; width: 390px; max-width: 100vw; padding: 10px 14px; gap: 8px; }
 .popup-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .brand-compact { gap: 9px; }
 .brand-compact .brand-mark { width: 32px; height: 32px; border-radius: 9px; }

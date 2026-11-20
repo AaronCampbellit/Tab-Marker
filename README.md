@@ -64,7 +64,9 @@ npm run build
 4. **Refresh HTTP(S) pages that were already open before installation.** Content scripts are injected when a page loads; the extension does not request programmatic scripting permission to retrofit old pages.
 5. Open the toolbar popup on a normal website, choose a title and/or colored icon, select a scope, and save.
 
-The source directory itself is not the unpacked extension. `npm run build` typechecks TypeScript, builds React pages with Vite and the Tailwind 4 Vite plugin, and bundles the worker and isolated content script into `dist`.
+The source directory itself is not the unpacked extension. `npm run build` runs `npm run typecheck` with the pinned Rust compiler (`tsrs`), builds the React pages with Vite and Tailwind, and bundles the worker and content script with esbuild into `dist`.
+
+Install npm's optional dependencies so the native compiler is available. The pinned tsrs release supports x64 and arm64 on Windows, macOS and Linux (glibc or musl). Bundling the Windows helper also requires the .NET Framework C# compiler or a compatible compiler selected with `TABMARKER_CSC`.
 
 For iterative development:
 
@@ -196,13 +198,15 @@ SPA navigation uses page lifecycle events, mutation-triggered URL checks, and a 
 ## Validation
 
 ```sh
-npm run typecheck
+npm run typecheck:verify
 npm run test:unit
 npm run test:content
 npm run test:browser
 # Or run all three suites:
 npm run test:all
 ```
+
+While tsrs is in beta, `npm run typecheck:tsc` runs the official stable TypeScript checker directly. Use `npm run typecheck:verify` to require both compilers to pass the same `tsconfig.json`, including the extension sources, tests and root TypeScript configs.
 
 | Command | What it exercises |
 | --- | --- |

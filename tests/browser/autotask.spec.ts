@@ -23,7 +23,7 @@ test('popup saves three independent Autotask views and restores them across a br
     const tabId = await extension.tabId(page);
     const popup = await extension.popup(tabId);
     await expect(popup.getByLabel('Rule scope', { exact: true })).toHaveValue('exact');
-    await expect(popup.getByText(`Matches this Autotask screen: ${label}`, { exact: false })).toBeVisible();
+    await expect(popup.locator('#scope-help').getByText(label, { exact: false })).toBeVisible();
     await popup.getByLabel('Tab title', { exact: true }).fill(label);
     await popup.getByLabel('Icon symbol', { exact: true }).fill(String(++index));
     await popup.getByRole('button', { name: 'Save customization', exact: true }).click();
